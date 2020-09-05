@@ -1,0 +1,213 @@
+selector {
+  property: value;
+  property: value;
+  property: value;
+}
+
+#idName {
+  color: red;
+}
+
+.className {
+  color: greenyellow;
+}
+
+input:checked {
+  width: 15px;
+  height: 15px;
+}
+
+div:hover {
+  /* color: palevioletred; */
+}
+
+div::before {
+  /* content: "hello world"; */
+}
+
+div::first-letter {
+  color: red;
+}
+
+#tagH div {
+  /* color: yellowgreen; */
+}
+
+#tagH span {
+  /* color: indianred; */
+}
+
+#tagH > div {
+  /* color : orchid; */
+}
+
+p span {
+  /* color : darkgoldenrod; */
+}
+
+p > span {
+  /* color : aqua; */
+}
+
+p div {
+  /* color: red; */
+}
+.plusCombinators + div {
+  /* color : brown; */
+}
+
+.plusCombinators ~ div {
+  /* color: burlywood; */
+}
+input[type] {
+  /* color: blue; */
+}
+
+input[type="password"] {
+  /* background-color: silver; */
+}
+
+input[title~="this"] {
+  /* / this something, X this-something, X thissomething, X something this */
+  /* background-color: darksalmon; */
+}
+
+input[title^="input"] {
+  /* background-color : forestgreen; */
+}
+
+input[title|="input"] {
+  /* background-color: black; */
+}
+
+input[title$="Form"] {
+  /* background-color: teal; */
+}
+
+input[title*="this"] {
+  /* background-color: hotpink; */
+}
+
+.textAlign {
+  /* text-align: left;  */
+  /* text-align: right; */
+  /* text-align: start; */
+  /* text-align: center; */
+  /* text-align: justify; */
+}
+
+.verticalAlign {
+  /* vertical-align: super; */
+  /* vertical-align: sub; */
+}
+
+.textAlign {
+  /* word-spacing: 3mm; */
+}
+
+.textAlign {
+  /* text-decoration-line: underline; */
+  /* text-decoration-style: dotted; */
+  /* text-decoration-color: red; */
+  /* text-decoration: overline solid red; */
+}
+
+.textAlign {
+  /* text-indent: 10ch; */
+}
+
+.textDirection {
+  width: 100vw;
+  direction: ltr;
+  /* direction: rtl; */
+  /* text-shadow: 10px -10px ; */
+}
+
+@font-face {
+  font-family: Kanit;
+  src: url(../Kanit/Kanit-Regular.ttf);
+}
+
+p {
+  /* font-family: Kanit; */
+  /* font-style: italic; */
+  /* font-weight: bold; */
+  /* font-size: 16px; */
+  /* font-variant: small-caps; */
+}
+
+ul > li {
+  /* border: solid 1px black; */
+  /* list-style-type: circle; */
+  /* list-style-position: outside ; */
+  /* list-style-image: url(https://th.seaicons.com/wp-content/uploads/2017/02/address-book-icon.png); */
+  /* list-style: circle inside url(https://www.dailygizmo.tv/wp-content/uploads/2017/05/y0-500x512.jpg); */
+}
+
+.borderTable {
+  /* width: 100vw; */
+  /* min-width: 650px; */
+  /* property 650px */
+  /* max-width: 1000px; */
+  /* height: 100px; */
+  /* border-style: groove; */
+  /* border-radius: 10px; */
+  /* border-width: 10px; */
+  /* border-color: red; */
+  border: 10px double dodgerblue;
+  /* border-top-color: blueviolet; */
+  /* border: ; */
+}
+
+table,
+td,
+th {
+  border-collapse: collapse;
+  border: 2px solid black;
+  /* border-spacing: 20px; */
+  /* empty-cells: hide; */
+  /* table-layout: fixed;
+   width: 100%; */
+  /* height: 50px;  */
+  caption-side: bottom;
+}
+
+img {
+  display: block;
+  border: solid black 1px;
+  border-radius: 50%;
+  width: 200px;
+  height: 200px;
+  margin: auto;
+
+  /* opacity: 0.1;  */
+}
+/* opacity 0 - 1, 0 คือ โปร่งแสง , 1 คือ ไม่โปร่งแสง */
+
+.bgTest {
+  /* width: 60vw;
+    height: 130vh; */
+    /* background-color: navajowhite; */
+  /* background-image: url(https://image.dek-d.com/contentimg/2018/wut_/kc.jpg); */
+}
+
+body {
+  /* background-image: url(https://image.freepik.com/free-photo/white-cloud-blue-sky-sea_74190-4488.jpg); */
+  /* background-repeat: no-repeat; */
+  /* background-attachment: fixed; */
+}
+
+.paddingMargin {
+  display: inline-block;
+  background-color: aquamarine;
+  /* padding: 10px; */
+  margin: auto;
+}
+
+.pDisplay {
+  /* display: inline; */
+  display: contents;
+  border: 1px black solid;
+  background-color: red;
+  font-family: Kanit;
+}

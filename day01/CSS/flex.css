@@ -1,0 +1,41 @@
+.container{
+    display: flex;
+    /* flex-direction: column ; */
+    /* flex-direction: column-reverse; */
+    /* flex-direction: row; */
+    /* flex-direction: row-reverse; */
+    /* flex-wrap: nowrap; */
+    flex-wrap: wrap;
+    /* flex-wrap: wrap-reverse; */
+    /* flex-flow: row wrap; */
+    /* flex-flow: column wrap; */
+
+
+    /* justify-content must have flex-wrap before*/
+    /* justify-content: space-around; */
+    /* justify-content: space-between; */
+    /* justify-content: flex-start; */
+    /* justify-content: center; */
+    /* justify-content: flex-end; */
+
+}
+/* การใช้ flex ต้องกำหนด margin แทน grid-gap */
+.container > div {
+    background-color: lightsalmon;
+    width: 400px;
+    height: 200px;
+    text-align: center;
+    margin: 10px;
+}
+
+.item5{
+    /* order: -1; */
+    /* order: 1; */
+    /* default order = 0 */
+
+    /* flex-grow: 30; */
+    /* flex-shrink: 50; */
+    flex-basis: 400px;
+    flex: 30 50;
+
+}

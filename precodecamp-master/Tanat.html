@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <title>Lab HTML</title>
+
+  <style>
+    table, th, td {
+      border: 1px solid black;
+    }
+    table {
+      margin-bottom: 2em;
+    }
+  </style>
+</head>
+<body>
+  <table>
+    <thead>
+      <tr>
+        <th colspan="3">1. Attribute</th>
+      </tr>
+      <tr>
+        <th>Tag</th>
+        <th>Attributes</th>
+        <th>Usages</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <th rowspan="3">&lth1&gt to &lth6&gt</th>
+        <td>align</td>
+        <td>ระบุการปรับแนวของหัวเรื่อง (ไม่รองรับใน HTML5)</td>
+      </tr>
+      <tr>
+        <td colspan="2">*รองรับ <a href="https://www.w3schools.com/tags/ref_standardattributes.asp" target="_blank">Global Attributes</a></td>
+      </tr>
+      <tr>
+        <td colspan="2">*รองรับ <a href="https://www.w3schools.com/tags/ref_eventattributes.asp" target="_blank">Event Attributes</a></td>
+      </tr>
+      <tr>
+        <th rowspan="3">&ltp&gt</th>
+        <td>align</td>
+        <td>ระบุการปรับแนวของข้อความในย่อหน้า (ไม่รองรับใน HTML5)</td>
+      </tr>
+      <tr>
+        <td colspan="2">*รองรับ <a href="https://www.w3schools.com/tags/ref_standardattributes.asp" target="_blank">Global Attributes</a></td>
+      </tr>
+      <tr>
+        <td colspan="2">*รองรับ <a href="https://www.w3schools.com/tags/ref_eventattributes.asp" target="_blank">Event Attributes</a></td>
+      </tr>
+      <tr>
+        <th rowspan="3">&ltdiv&gt</th>
+        <td>align</td>
+        <td>ระบุการปรับแนวของเนื้อหาใน element &ltdiv&gt (ไม่รองรับใน HTML5)</td>
+      </tr>
+      <tr>
+        <td colspan="2">*รองรับ <a href="https://www.w3schools.com/tags/ref_standardattributes.asp" target="_blank">Global Attributes</a></td>
+      </tr>
+      <tr>
+        <td colspan="2">*รองรับ <a href="https://www.w3schools.com/tags/ref_eventattributes.asp" target="_blank">Event Attributes</a></td>
+      </tr>
+      <tr>
+        <th rowspan="16">&ltimg&gt</th>
+        <td>align</td>
+        <td>ระบุการปรับแนวของรูปภาพโดยอ้างอิงจาก element โดยรอบ (ไม่รองรับใน HTML5)</td>
+      </tr>
+      <tr>
+        <td>alt</td>
+        <td>ระบุข้อความทางเลือกสำหรับรูปภาพ</td>
+      </tr>
+      <tr>
+        <td>border</td>
+        <td>ระบุความกว้างของขอบรอบรูปภาพ (ไม่รองรับใน HTML5)</td>
+      </tr>
+      <tr>
+        <td>crossorigin</td>
+        <td>อนุญาตให้รูปภาพจากไซต์ของคนอื่นที่มีการอนุญาตให้เข้าถึงแบบ cross-origin ใช้งานบน canvas ได้</td>
+      </tr>
+      <tr>
+        <td>height</td>
+        <td>ระบุความสูงของรูปภาพ</td>
+      </tr>
+      <tr>
+        <td>hspace</td>
+        <td>ระบุพื้นที่สีขาวทางด้านซ้ายและขวาของรูปภาพ (ไม่รองรับใน HTML5)</td>
+      </tr>
+      <tr>
+        <td>ismap</td>
+        <td>ระบุให้รูปภาพเป็น server-side image-map</td>
+      </tr>
+      <tr>
+        <td>longdesc</td>
+        <td>ระบุ URL ที่ชี้ไปถึงคำอธิบายอย่างละเอียดของรูปภาพ</td>
+      </tr>
+      <tr>
+        <td>sizes</td>
+        <td>ระบุขนาดของรูปภาพสำหรับ layout ต่างๆของเพจ</td>
+      </tr>
+      <tr>
+        <td>src</td>
+        <td>ระบุ URL ของรูปภาพ</td>
+      </tr>
+      <tr>
+        <td>srcset</td>
+        <td>ระบุ URL ของรูปภาพสำหรับการใช้ในกรณีอื่น</td>
+      </tr>
+      <tr>
+        <td>usemap</td>
+        <td>ระบุให้รูปภาพเป็น client-side image-map</td>
+      </tr>
+      <tr>
+        <td>vspace</td>
+        <td>ระบุพื้นที่สีขาวทางด้านบนและล่างของรูปภาพ (ไม่รองรับใน HTML5)</td>
+      </tr>
+      <tr>
+        <td>width</td>
+        <td>ระบุความกว้างของรูปภาพ</td>
+      </tr>
+      <tr>
+        <td colspan="2">*รองรับ <a href="https://www.w3schools.com/tags/ref_standardattributes.asp" target="_blank">Global Attributes</a></td>
+      </tr>
+      <tr>
+        <td colspan="2">*รองรับ <a href="https://www.w3schools.com/tags/ref_eventattributes.asp" target="_blank">Event Attributes</a></td>
+      </tr>
+      <tr>
+        <th rowspan="16">&lta&gt</th>
+        <td>charset</td>
+        <td>ระบุชุดตัวอักษรของเอกสารที่ลิ้งค์ไปถึง (ไม่รองรับใน HTML5)</td>
+      </tr>
+      <tr>
+        <td>coords</td>
+        <td>ระบุพิกัดของลิ้งค์ (ไม่รองรับใน HTML5)</td>
+      </tr>
+      <tr>
+        <td>download</td>
+        <td>ระบุว่าไฟล์เป้าหมายจะถูกดาว์นโหลดเมื่อผู้ใช้คลิกลิ้งค์</td>
+      </tr>
+      <tr>
+        <td>href</td>
+        <td>ระบุ URL ของเพจที่ลิ้งค์พาไป</td>
+      </tr>
+      <tr>
+        <td>hreflang</td>
+        <td>ระบุภาษาของเอกสารที่ลิ้งค์ไปถึง</td>
+      </tr>
+      <tr>
+        <td>media</td>
+        <td>ระบุสื่อหรืออุปกรณ์ที่เอกสารที่ลิ้งค์ไปถึงถูกออกแบบมาให้ทำงานได้อย่างมีประสิทธิภาพบนสื่อหรืออุปกรณ์นั้นๆ</td>
+      </tr>
+      <tr>
+        <td>name</td>
+        <td>ระบุชื่อสำหรับ tag anchor นี้ (ไม่รองรับใน HTML5 ใช้งาน global id attribute แทน)</td>
+      </tr>
+      <tr>
+        <td>ping</td>
+        <td>ระบุรายการ URL ที่ถูกแบ่งโดยช่องว่าง โดยเป็นรายการที่เมื่อไปตามลิ้งค์ดังกล่าว post requests พร้อมกับ body ping จะถูกส่งไปโดยบราวเซอร์(โดยการทำงานในเบื้องหลัง) มักใช้ในการติดตาม</td>
+      </tr>
+      <tr>
+        <td>referrerpolicy</td>
+        <td>ระบุผู้อ้างอิงที่จะส่ง</td>
+      </tr>
+      <tr>
+        <td>rel</td>
+        <td>ระบุความสัมพันธ์ระหว่างเอกสารปัจจุบันและเอกสารที่ลิ้งค์ไปถึง</td>
+      </tr>
+      <tr>
+        <td>rev</td>
+        <td>ระบุความสัมพันธ์ระหว่างเอกสารที่ลิ้งค์ไปถึงและเอกสารปัจจุบัน (ไม่รองรับใน HTML5)</td>
+      </tr>
+      <tr>
+        <td>shape</td>
+        <td>ระบุรูปร่างของลิ้งค์ (ไม่รองรับใน HTML5)</td>
+      </tr>
+      <tr>
+        <td>target</td>
+        <td>ระบุว่าจะเปิดเอกสารที่ลิ้งค์ไปถึงที่ไหน</td>
+      </tr>
+      <tr>
+        <td>type</td>
+        <td>ระบุประเถทสื่อของเอกสารที่ลิ้งค์ไปถึง</td>
+      </tr>
+      <tr>
+        <td colspan="2">*รองรับ <a href="https://www.w3schools.com/tags/ref_standardattributes.asp" target="_blank">Global Attributes</a></td>
+      </tr>
+      <tr>
+        <td colspan="2">*รองรับ <a href="https://www.w3schools.com/tags/ref_eventattributes.asp" target="_blank">Event Attributes</a></td>
+      </tr>
+      <tr>
+        <th rowspan="4">&ltul&gt</th>
+        <td>compact</td>
+        <td>ระบุว่ารายการควรจะแสดงผลด้วยขนาดที่เล็กกว่าปกติ (ไม่รองรับใน HTML5)</td>
+      </tr>
+      <tr>
+        <td>type</td>
+        <td>ระบุชนิดเครื่องหมายที่จะใช้ในรายการ (ไม่รองรับใน HTML5)</td>
+      </tr>
+      <tr>
+        <td colspan="2">*รองรับ <a href="https://www.w3schools.com/tags/ref_standardattributes.asp" target="_blank">Global Attributes</a></td>
+      </tr>
+      <tr>
+        <td colspan="2">*รองรับ <a href="https://www.w3schools.com/tags/ref_eventattributes.asp" target="_blank">Event Attributes</a></td>
+      </tr>
+      <tr>
+        <th rowspan="6">&ltol&gt</th>
+        <td>compact</td>
+        <td>ระบุว่ารายการควรจะแสดงผลด้วยขนาดที่เล็กกว่าปกติ (ไม่รองรับใน HTML5)</td>
+      </tr>
+      <tr>
+        <td>reversed</td>
+        <td>ระบุว่าการจัดลำดับรายการควรเป็นแบบนับถอยหลัง (9,8,7...)</td>
+      </tr>
+      <tr>
+        <td>start</td>
+        <td>ระบุค่าเริ่มต้นของรายการเรียงลำดับ</td>
+      </tr>
+      <tr>
+        <td>type</td>
+        <td>ระบุชนิดเครื่องหมายที่จะใช้ในรายการ</td>
+      </tr>
+      <tr>
+        <td colspan="2">*รองรับ <a href="https://www.w3schools.com/tags/ref_standardattributes.asp" target="_blank">Global Attributes</a></td>
+      </tr>
+      <tr>
+        <td colspan="2">*รองรับ <a href="https://www.w3schools.com/tags/ref_eventattributes.asp" target="_blank">Event Attributes</a></td>
+      </tr>
+      <tr>
+        <th rowspan="11">&lttable&gt</th>
+        <td>align</td>
+        <td>ระบุการปรับแนวของตารางโดยอ้างอิงจากข้อความโดยรอบ (ไม่รองรับใน HTML5)</td>
+      </tr>
+      <tr>
+        <td>bgcolor</td>
+        <td>ระบุสีพื้นหลังของตาราง (ไม่รองรับใน HTML5)</td>
+      </tr>
+      <tr>
+        <td>border</td>
+        <td>ระบุว่าตารางนี้ถูกใช้งานเพื่อวัตถุประสงค์ในการจัด layout หรือไม่ (ไม่รองรับใน HTML5)</td>
+      </tr>
+      <tr>
+        <td>cellpadding</td>
+        <td>ระบุพื้นที่ระหว่างผนังของเซลล์และเนื้อหาของเซลล์ (ไม่รองรับใน HTML5)</td>
+      </tr>
+      <tr>
+        <td>cellspacing</td>
+        <td>ระบุพื้นที่ระหว่างเซลล์ (ไม่รองรับใน HTML5)</td>
+      </tr>
+      <tr>
+        <td>frame</td>
+        <td>ระบุว่าส่วนไหนของขอบด้านนอกที่ควรถูกมองเห็นได้ (ไม่รองรับใน HTML5)</td>
+      </tr>
+      <tr>
+        <td>rules</td>
+        <td>ระบุว่าส่วนไหนของขอบด้านในที่ควรถูกมองเห็นได้ (ไม่รองรับใน HTML5)</td>
+      </tr>
+      <tr>
+        <td>summary</td>
+        <td>ระบุย่อความของเนื้อหาของตาราง (ไม่รองรับใน HTML5)</td>
+      </tr>
+      <tr>
+        <td>width</td>
+        <td>ระบุความกว้างของตาราง (ไม่รองรับใน HTML5)</td>
+      </tr>
+      <tr>
+        <td colspan="2">*รองรับ <a href="https://www.w3schools.com/tags/ref_standardattributes.asp" target="_blank">Global Attributes</a></td>
+      </tr>
+      <tr>
+        <td colspan="2">*รองรับ <a href="https://www.w3schools.com/tags/ref_eventattributes.asp" target="_blank">Event Attributes</a></td>
+      </tr>
+      <tr>
+        <th rowspan="11">&ltform&gt</th>
+        <td>accept</td>
+        <td>ระบุรายการชนิดของไฟล์ที่ถูกแบ่งโดยลูกน้ำที่เซิฟเวอร์ยอมรับ(ที่สามารถถูกส่งไปได้ผ่านการอัพโหลดไฟล์) (ไม่รองรับใน HTML5)</td>
+      </tr>
+      <tr>
+        <td>accept-charset</td>
+        <td>ระบุการเข้ารหัสตัวอักษรที่จะถูกใช้สำหรับการยื่นฟอร์ม</td>
+      </tr>
+      <tr>
+        <td>action</td>
+        <td>ระบุว่าจะส่งข้อมูลของฟอร์มไปที่ไหนเมื่อฟอร์มถูกยื่น</td>
+      </tr>
+      <tr>
+        <td>autocomplete</td>
+        <td>ระบุว่าฟอร์มควรเปิดหรือปิดการใช้งาน autocomplete</td>
+      </tr>
+      <tr>
+        <td>enctype</td>
+        <td>ระบุว่าข้อมูลของฟอร์มควรจะถูกเข้ารหัสอย่างไรเมื่อทำการยื่นไปที่เซิฟเวอร์ (สำหรับ method="post" เท่านั้น)</td>
+      </tr>
+      <tr>
+        <td>method</td>
+        <td>ระบุ HTTP method ที่จะใช้เมื่อทำการส่งข้อมูลของฟอร์ม</td>
+      </tr>
+      <tr>
+        <td>name</td>
+        <td>ระบุชื่อสำหรับฟอร์ม</td>
+      </tr>
+      <tr>
+        <td>novalidate</td>
+        <td>ระบุว่าฟอร์มไม่ควรถูกตรวจสอบเมื่อถูกยื่น</td>
+      </tr>
+      <tr>
+        <td>target</td>
+        <td>ระบุว่าจะแสดงการตอบรับที่ได้หลังจากการยื่นฟอร์มที่ไหน</td>
+      </tr>
+      <tr>
+        <td colspan="2">*รองรับ <a href="https://www.w3schools.com/tags/ref_standardattributes.asp" target="_blank">Global Attributes</a></td>
+      </tr>
+      <tr>
+        <td colspan="2">*รองรับ <a href="https://www.w3schools.com/tags/ref_eventattributes.asp" target="_blank">Event Attributes</a></td>
+      </tr>
+      <tr>
+        <th rowspan="13">button</th>
+        <td>autofocus</td>
+        <td>ระบุว่าปุ่มควรจะถูกโฟกัสโดยอัตโนมัติเมื่อเพจโหลด</td>
+      </tr>
+      <tr>
+        <td>disabled</td>
+        <td>ระบุว่าปุ่มควรจะถูกปิดการทำงาน</td>
+      </tr>
+      <tr>
+        <td>form</td>
+        <td>ระบุฟอร์มหนึ่งฟอร์มหรือมากกว่าที่มีปุ่มนี้เป็นสมาชิก</td>
+      </tr>
+      <tr>
+        <td>formaction</td>
+        <td>ระบุว่าจะส่งข้อมูลของฟอร์มไปที่ไหนเมื่อฟอร์มถูกยื่น สำหรับ type="submit" เท่านั้น</td>
+      </tr>
+      <tr>
+        <td>formenctype</td>
+        <td>ระบุว่าข้อมูลของฟอร์มควรจะถูกเข้ารหัสอย่างไรก่อนที่จะส่งมันไปเซิฟเวอร์ สำหรับ type="submit" เท่านั้น</td>
+      </tr>
+      <tr>
+        <td>formmethod</td>
+        <td>ระบุว่าจะส่งข้อมูลของฟอร์มอย่างไร(ใช้ HTTP method แบบไหน) สำหรับ type="submit" เท่านั้น</td>
+      </tr>
+      <tr>
+        <td>formnovalidate</td>
+        <td>ระบุว่าข้อมูลของฟอร์มไม่ควรจะถูกตรวจสอบเมื่อทำการยื่น สำหรับ type="submit" เท่านั้น</td>
+      </tr>
+      <tr>
+        <td>formtarget</td>
+        <td>ระบุว่าจะแสดงการตอบรับที่ได้หลังจากการยื่นฟอร์มที่ไหน สำหรับ type="submit" เท่านั้น</td>
+      </tr>
+      <tr>
+        <td>name</td>
+        <td>ระบุชื่อสำหรับปุ่ม</td>
+      </tr>
+      <tr>
+        <td>type</td>
+        <td>ระบุชนิดของปุ่ม</td>
+      </tr>
+      <tr>
+        <td>value</td>
+        <td>ระบุค่าเริ่มต้นของปุ่ม</td>
+      </tr>
+      <tr>
+        <td colspan="2">*รองรับ <a href="https://www.w3schools.com/tags/ref_standardattributes.asp" target="_blank">Global Attributes</a></td>
+      </tr>
+      <tr>
+        <td colspan="2">*รองรับ <a href="https://www.w3schools.com/tags/ref_eventattributes.asp" target="_blank">Event Attributes</a></td>
+      </tr>
+    </tbody>
+  </table>
+  <table>
+    <thead>
+      <tr>
+        <th colspan="3">2. Differentiation Tag</th>
+      </tr>
+      <tr>
+        <th>Tags</th>
+        <th>Similarities</th>
+        <th>Differences</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <th>&lthr&gt</th>
+        <td rowspan="2">
+          <ul>
+            <li>เป็น empty element</li>
+          </ul>
+        </td>
+        <td>
+          <ul>
+            <li>ใช้เป็นตัวขั้นระหว่างการเปลี่ยนหัวข้อของเนื้อหาบนเพจ</li>
+            <li>โดยตั้งต้นจะแสดงผลแบบ block โดยมีลักษณะเป็นเส้นแนวนอนตามความยาวของจอ</li>
+          </ul>
+        </td>
+      </tr>
+      <tr>
+        <th>&ltbr&gt</th>
+        <td>
+          <ul>
+            <li>ใช้ในการใส่ line break เพื่อจบบรรทัดปัจจุบันและขึ้นบรรทัดใหม่ของข้อความ</li>
+            <li>โดยตั้งต้นจะไม่มีการแสดงผล</li>
+          </ul>
+        </td>
+      </tr>
+      <tr>
+        <th>&ltul&gt</th>
+        <td rowspan="2">
+          <ul>
+            <li>ใช้ในการแสดงข้อมูลที่เป็นรายการ</li>
+            <li>ใช้ tag &ltli&gt ในการระบุสมาชิก</li>
+            <li>โดยตั้งต้นจะแสดงผลแบบ block</li>
+          </ul>
+        </td>
+        <td>
+          <ul>
+            <li>แสดงรายการแบบไม่แสดงลำดับ(แบบ bulleted)</li>
+          </ul>
+        </td>
+      </tr>
+      <tr>
+        <th>&ltol&gt</th>
+        <td>
+          <ul>
+            <li>แสดงรายการแบบแสดงลำดับ โดยลำดับจะแสดงด้วยตัวเลขหรือตัวอักษร</li>
+          </ul>
+        </td>
+      </tr>
+      <tr>
+        <th>&ltselect&gt</th>
+        <td rowspan="3">
+          <ul>
+            <li>ใช้เป็นสมาชิกของฟอร์มเพื่อรับ input จากผู้ใช้</li>
+          </ul>
+        </td>
+        <td>
+          <ul>
+            <li>ใช้ในการแสดงรายการแบบ drop-down</li>
+            <li>ใช้ tag &ltoption&gt ในการระบุสมาชิกของรายการที่ผู้ใช้สามารถเลือกได้</li>
+          </ul>
+        </td>
+      </tr>
+      <tr>
+        <th>&ltinput type="checkbox"&gt</th>
+        <td>
+          <ul>
+            <li>ใช้ในการแสดงช่องติ้ก</li>
+            <li>โดยตั้งต้นจะแสดงผลเป็นกล่องสีเหลี่ยมจัตุรัสที่จะมีเครื่องหมายขีดถูกข้างในเมื่อถูกใช้งาน</li>
+            <li>ใช้ในการให้ผู้ใช้เลือกตัวเลือกศูนย์ตัวหรือมากกว่าจากกลุ่มของตัวเลือก</li>
+          </ul>
+        </td>
+      </tr>
+      <tr>
+        <th>&ltinput type="radio"&gt</th>
+        <td>
+          <ul>
+            <li>ใช้ในการแสดงปุ่มวิทยุ</li>
+            <li>โดยตั้งต้นจะแสดงผลเป็นวงกลมที่จะมีจุดข้างในเมื่อถูกใช้งาน</li>
+            <li>ใช้ในการให้ผู้ใช้เลือกตัวเลือกหนึ่งตัวจากกลุ่มของตัวเลือก</li>
+            <li>ในกลุ่มตัวเลือกแบบปุ่มวิทยุจะมีปุ่มที่ถูกเลือกได้เพิ่งหนึ่งปุ่มเท่านั้น เมื่อผู้ใช้กดเลือกปุ่มอื่นในกลุ่ม ปุ่มที่ถูกเลือกอยู่ก่อนหน้าจะไม่ถูกเลือกแล้ว</li>
+          </ul>
+        </td>
+      </tr>
+      <tr>
+        <th>&ltdiv&gt</th>
+        <td rowspan="2">
+          <ul>
+            <li>ใช้ในการครอบ element อื่นๆในเอกสารและใช้เป็นจุดอ้างอิง เพื่อเตรียมกลุ่มของ element เหล่านั้นสำหรับการตกแต่งด้วย CSS และการเพิ่มพฤติกรรมด้วย JavaScript</li>
+          </ul>
+        </td>
+        <td>
+          <ul>
+            <li>ใช้ในการแบ่งส่วนของเอกสาร</li>
+            <li>โดยตั้งต้นบราวเซอร์จะใส่ line break ให้ก่อนหน้าและข้างหลัง &ltdiv&gt</li>
+            <li>โดยตั้งต้นจะมีการแสดงผลแบบ block</li>
+          </ul>
+        </td>
+      </tr>
+      <tr>
+        <th>&ltspan&gt</th>
+        <td>
+          <ul>
+            <li>ใช้ในการรวม inline-element ต่างๆให้อยู่เป็นกลุ่ม</li>
+            <li>โดยตั้งต้นจะไม่ทำให้การแสดงผลของเอกสารเปลี่ยนแปลงไป</li>
+          </ul>
+        </td>
+      </tr>
+      <tr>
+        <th>&ltscript&gt</th>
+        <td rowspan="2">
+          <ul>
+            <li>ใช้ในการดัดแปลงเอกสารเพิ่มเติมจาก HTML</li>
+          </ul>
+        </td>
+        <td>
+          <ul>
+            <li>ใช้ในการนิยาม JavaScript client-side script เพื่อดัดแปลงหรือเพิ่มพฤติกรรมให้เอกสาร</li>
+            <li>สามารถใส่นิยามของ script ลงใน &ltscript&gt ได้เลย หรืออ้างอิงไปถึงไฟล์ JavaScript ภายนอกได้โดยใช้ attribute src</li>
+            <li>อยู่ได้ทั้งใน &lthead&gt และ &ltbody&gt</li>
+          </ul>
+        </td>
+      </tr>
+      <tr>
+        <th>&ltstyle&gt</th>
+        <td>
+          <ul>
+            <li>ใช้ในการนิยามข้อมูลสไตล์ที่จะระบุว่า element ต่างๆในเอกสารควรจะแสดงผลอย่างไร</li>
+            <li>ไม่สามารถอ้างอิงไปถึงข้อมูลสไตล์ภายนอกได้ ถ้าต้องการจะต้องใช้ &ltlink&gt แทน</li>
+            <li>ควรอยู่ใน &lthead&gt</li>
+          </ul>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <table>
+    <thead>
+      <tr>
+        <th colspan="2">3. Input Type</th>
+      </tr>
+      <tr>
+        <th>Type</th>
+        <th>Usage</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <th>text</th>
+        <td>กล่องข้อความหนึ่งบรรทัดที่ใช้รับข้อความ</td>
+      </tr>
+      <tr>
+        <th>password</th>
+        <td>กล่องข้อความหนึ่งบรรทัดที่ใช้รับข้อความ โดยที่ข้อความจะถูกซ่อนไว้โดยจะแสดงผลเป็นเครื่องหมายดอกจันหรือวงกลมแทน</td>
+      </tr>
+      <tr>
+        <th>submit</th>
+        <td>ปุ่มที่ใช้ในการยื่นข้อมูลของฟอร์มไปที่ form-handler</td>
+      </tr>
+      <tr>
+        <th>reset</th>
+        <td>ปุ่มที่ใช้ในการรีเซ็ทค่าของฟอร์มไปเป็นค่าตั้งต้น</td>
+      </tr>
+      <tr>
+        <th>radio</th>
+        <td>ปุ่มตัวเลือกที่ให้ผู้ใช้เลือกหนึ่งตัวเลือกจากกลุ่มของตัวเลือก</td>
+      </tr>
+      <tr>
+        <th>checkbox</th>
+        <td>ปุ่มตัวเลือกที่ให้ผู้ใช้เลือกศูนย์ตัวเลือกหรือมากกว่าจากกลุ่มของตัวเลือก</td>
+      </tr>
+      <tr>
+        <th>button</th>
+        <td>ปุ่มที่โดยตั้งต้นจะไม่มีพฤติกรรมใดๆ</td>
+      </tr>
+      <tr>
+        <th>color</th>
+        <td>ใช้สำหรับ input field ที่ควรจะรับสี โดย input field นั้นอาจจะมี color picker ขึ้นมาขึ้นอยู่กับการรองรับของบราวเซอร์</td>
+      </tr>
+      <tr>
+        <th>date</th>
+        <td>ใช้สำหรับ input field ที่ควรจะรับวันที่ โดย input field นั้นอาจจะมี date picker ขึ้นมาขึ้นอยู่กับการรองรับของบราวเซอร์</td>
+      </tr>
+      <tr>
+        <th>datetime-local</th>
+        <td>ใช้สำหรับ input field ที่รับวันที่และเวลาโดยไม่รับ time zone โดย input field นั้นอาจจะมี date picker ขึ้นมาขึ้นอยู่กับการรองรับของบราวเซอร์</td>
+      </tr>
+      <tr>
+        <th>email</th>
+        <td>ใช้สำหรับ input field ที่ควรจะรับ email address โดย email address นั้นอาจจะถูกตรวจสอบโดยอัตโนมัติเมื่อทำการยื่นฟอร์มขึ้นอยู่กับการรองรับของบราวเซอร์</td>
+      </tr>
+      <tr>
+        <th>file</th>
+        <td>ส่วนรับไฟล์พร้อมปุ่ม "Browse" สำหรับการอัพโหลดไฟล์</td>
+      </tr>
+      <tr>
+        <th>month</th>
+        <td>ให้ผู้ใช้เลือกเดือนและปี โดย input field นั้นอาจจะมี date picker ขึ้นมาขึ้นอยู่กับการรองรับของบราวเซอร์</td>
+      </tr>
+      <tr>
+        <th>number</th>
+        <td>input field สำหรับการรับตัวเลข โดยสามารถระบุข้อจำกัดของตัวเลขที่ยอมรับได้ด้วย</td>
+      </tr>
+      <tr>
+        <th>range</th>
+        <td>ส่วนควบคุมสำหรับการรับค่าตัวเลขโดยที่ค่าเจาะจงของตัวเลขไม่ใช่สิ่งสำคัญ(เช่น อาจจะใช้ slider เพื่อป้อนค่าตัวเลข) โดยสามารถระบุช่วงของค่าที่ยอมรับได้</td>
+      </tr>
+      <tr>
+        <th>search</th>
+        <td>ใช้สำหรับกล่องค้นหา(มีพฤติกรรมเหมือนกล่องรับข้อความธรรมดา)</td>
+      </tr>
+      <tr>
+        <th>tel</th>
+        <td>ใช้สำหรับ input field ที่ควรจะรับเบอร์โทรศัพท์</td>
+      </tr>
+      <tr>
+        <th>time</th>
+        <td>ให้ผู้ใช้เลือกเวลา(แบบไม่มี time zone) โดย input field นั้นอาจจะมี time picker ขึ้นมาขึ้นอยู่กับการรองรับของบราวเซอร์</td>
+      </tr>
+      <tr>
+        <th>url</th>
+        <td>ใช้สำหรับ input field ที่ควรจะรับ URL address โดย URL นั้นอาจจะถูกตรวจสอบโดยอัตโนมัติเมื่อทำการยื่นฟอร์มขึ้นอยู่กับการรองรับของบราวเซอร์</td>
+      </tr>
+      <tr>
+        <th>week</th>
+        <td>ให้ผู้ใช้เลือกสัปดาห์และปี โดย input field นั้นอาจจะมี date picker ขึ้นมาขึ้นอยู่กับการรองรับของบราวเซอร์</td>
+      </tr>
+      <tr>
+        <th>image</th>
+        <td>ปุ่ม submit ที่สร้างจากรูปภาพ</td>
+      </tr>
+      <tr>
+        <th>hidden</th>
+        <td>ใช้สร้าง input field ที่ไม่แสดงผลให้ผู้ใช้เห็น ช่วยให้ผู้พัฒนาเว็บสามารถแทรกข้อมูลที่ไม่ต้องการให้ผู้ใช้เห็นหรือแก้ไขไปพร้อมกับการยื่นฟอร์มได้</td>
+      </tr>
+    </tbody>
+  </table>
+  <strong>ข้อความสำคัญแบบแถม bold!</strong><br>
+  <label for="field">ฉันคือป้ายชื่อของกล่องข้อความ คุณสามารถเลือกกล่องข้อความโดยการคลิกฉันได้</label> <input id="field" type="text"><br>
+  <del>ข้อความที่โดนขีดฆ่า</del><br>
+  <b>ข้อความแบบ bold เฉยๆ</b><br>
+  <em>ข้อความที่เน้นแบบแถม italic</em><br>
+  <mark>ข้อความที่โดน highlight</mark><br>
+  <i>ข้อความแบบ italic เฉยๆ</i><br>
+  ข้อความ<sub>ห้อยล่าง</sub><br>
+  ข้อความ<sup>แขวนบน</sup>
+</body>
+</html>

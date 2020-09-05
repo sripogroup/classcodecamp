@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css"
+        integrity="sha384-Vkoo8x4CGsO3+Hhxv8T/Q5PaXtkKtu6ug5TOeNV6gBiFeWPGFN9MuhOf23Q9Ifjh" crossorigin="anonymous">
+    <style>
+        #id_div {
+            width: 100px;
+            height: 100px;
+            /* background-color: red; */
+            background-color: skyblue;
+            /* animation-name: example; */
+            /* animation-duration: 5s; */
+            /* animation-delay: 3s; */
+            /* animation-delay: -2s; */
+            /* animation-iteration-count: 2; */
+            /* animation-iteration-count: infinite; */
+            /* animation-direction: alternate; */
+            /* animation-direction: reverse; */
+            /* animation-timing-function: ease-out; */
+            /* animation-timing-function: linear; */
+            /* animation-timing-function: step-end; */
+            /* animation-timing-function: step-start; */
+            /* animation-timing-function: ease-in; */
+            /* animation-timing-function: ease-out; */
+            animation: example alternate linear 5s 3s infinite;
+
+        }
+
+        /* @keyframes example {
+            from {
+                background-color: skyblue;
+                height: 300px;
+                width: 300px;
+                margin: auto;
+            }
+
+            to {
+                background-color: black;
+                margin:auto;
+            }
+        } */
+
+        @keyframes example {
+            0% {
+                background-color: peachpuff;
+            }
+
+            25% {
+                background-color: red;
+            }
+
+            50% {
+                background-color: peachpuff;
+            }
+
+            100% {
+                background-color: darkblue;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <p style="text-align: center;"> created div element after this tag</p>
+    <div class="div" style="margin: auto;"></div>
+    <div id="id_div"></div>
+
+    <div class="alert alert-success" role="alert">
+        <h4 class="alert-heading">Well done!</h4>
+        <p>Aww yeah, you successfully read this important alert message. This example text is going to run a bit longer so that you can see how spacing within an alert works with this kind of content.</p>
+        <hr>
+        <p class="mb-0">Whenever you need to, be sure to use margin utilities to keep things nice and tidy.</p>
+      </div>
+
+</body>
+
+</html>

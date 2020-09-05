@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Document</title>
+    <style>
+        .button,
+        .dropdown,
+        .dropdown2 {
+            cursor: pointer;
+            display: inline-block;
+            margin: auto;
+        }
+
+        /* when mouse over change list-content from none to block */
+        .dropdown:hover .list-content {
+            display: block;
+        }
+
+        /* hidden the list-content, absolute to background color cover only text */
+        .list-content {
+            display: none;
+            width: 100px;
+            /* position: absolute; */
+            /* z-index: 1; */
+        }
+
+        /* change list-content to block */
+        .list-content a {
+            color: black;
+            text-decoration: none;
+            display: block;
+        }
+
+        /* when mouse over a in list-content show background */
+        .list-content a:hover {
+            background-color: blanchedalmond;
+        }
+
+        .dropdown2:hover .list-content-2 {
+            display: block;
+        }
+
+        .list-content-2 {
+            display: none;
+            width: 100px;
+            /* position: absolute; */
+        }
+
+        .list-content-2 a {
+            color: black;
+            text-decoration: none;
+            display: block;
+        }
+
+        .list-content-2 a:hover {
+            background-color: burlywood;
+        }
+
+        .slide_bar {
+            display: inline-block;
+            border: transparent 1px solid; 
+        }
+
+        .slide_bar > button {
+            border: transparent 1px solid;
+            background-color: #3B5998;
+            color: white;
+            cursor: pointer;
+        }
+/* 
+        .slide_bar:hover a {
+            display: block;
+        } */
+        .slide_bar:hover >.menu > a{
+            display: block;
+        }
+
+        .slide_bar:hover > .menu2 > a{
+            display: block;
+        }
+
+        /* .slide_bar:hover > .menu3 > a{
+            display: block;
+        } */
+
+        .slide_bar a{
+            display: none;
+            text-decoration: none;
+        }
+
+        .slide_bar a:hover{
+            background-color: skyblue;
+            text-decoration: none;
+        }
+
+    </style>
+
+</head>
+
+<body>
+    <!-- card example; -->
+    <h1 style="text-align: center;"> card example</h1>
+    <div style="border: solid 1px black; border-radius: 5px;width:300px; margin: auto;">
+        <img src="https://image.freepik.com/free-psd/photo-frames-mockup_53876-57749.jpg" alt=""
+            style=" width: 100%; height: auto; border-top-left-radius: inherit; border-top-right-radius: inherit;">
+        <div style="padding: 5%;">
+            <h3> card title </h3>
+            <p> Lorem ipsum dolor sit amet, consectetur adipisicing elit. Aperiam, explicabo!</p>
+            <a href="#" style="display: flex; justify-content: flex-end;"> <button> link to some where </button> </a>
+        </div>
+    </div>
+    <br><br>
+    <!-- Toast example -->
+    <h1 style="text-align: center;"> Toast example </h1>
+    <div style="border: 1px solid grey; border-radius: 5px; width: 300px; margin: auto;">
+        <div style="border-bottom: 1px grey solid; padding: 3%;">
+            <icon>pic</icon>
+            <span> <strong> header</strong> </span>
+            <span style="padding-left: 15%;"> <small> 2 minutes ago</small></span>
+            <button style="border: none; background-color: white;">
+                <span style="font-size: 1.7em;">&times;</span>
+            </button>
+
+        </div>
+        <div>
+            <P style="padding: 3%">Lorem ipsum dolor sit amet consectetur adipisicing elit. Porro, facilis.</P>
+        </div>
+    </div>
+
+
+    <!-- dropdown and side_bar dropdown-->
+
+    <h1 style="text-align: center;"> dropdown</h1>
+    <div class="container-dropdown" style="display: flex; flex-direction: column;">
+        <div class="dropdown">
+            <button class="button"> dropdown</button>
+            <div class="list-content">
+                <a href="#"> menu1</a>
+                <a href="#"> menu2</a>
+                <a href="#"> menu3</a>
+                <a href="#"> menu4</a>
+            </div>
+        </div>
+        <div class="dropdown2">
+            <button class="button"> dropdown2</button>
+            <div class="list-content-2">
+                <a href="#"> menu1</a>
+                <a href="#"> menu2</a>
+                <a href="#"> menu3</a>
+                <a href="#"> menu4</a>
+                <a href="#"> menu5</a>
+            </div>
+        </div>
+    </div>
+    
+
+
+</body>
+
+</html>

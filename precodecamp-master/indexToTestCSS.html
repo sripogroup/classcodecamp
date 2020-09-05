@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Document</title>
+    <link rel="stylesheet" href="./CSS/stlye.css" type="text/css">
+    <!-- tag link use for import external css การนำเข้าไฟล์ CSS จากภายนอก HTML ไฟล์-->
+</head>
+
+
+<body>
+    <h1 class="heading" style="property: value; property: value;">test tag A </h1>
+    <!-- inline css use for edit style in this tag การปรับแต่ง CSS ในแท๊ก-->
+    <style>
+        selector {
+            property: value;
+            property: value;
+            property: value;
+        }
+        
+        
+
+    </style><!-- tag style use for import internal css การใช้ CSS จากภายใน HTML ไฟล์-->
+
+    <h3 id="idName"> this tag have id that is idName</h3>
+
+    <h3 class="className"> this tag have class that is className</h3>
+
+    <h2> pseudo classes</h2>
+
+    <form class="formCheckbox">
+        <input type="checkbox" checked> one </input>
+        <input type="checkbox"> two </input>
+        <input type="checkbox"> three </input>
+    </form>
+
+    <h2> Combinator test</h2>
+
+    <div>
+        <p>paragraph 1 in div</p>
+        <p>paragraph 2 in div</p>
+        <p>paragraph 3 in div</p>
+    </div>
+
+
+    <h3 id="tagH">
+        <div>div 1 item in tag p
+            <div>div 1 item in tag div in tag p</div>
+            <div class="plusCombinators">div 2 item in tag div in tag p <strong>this div have class
+                    plusCombinators</strong></div>
+            <div>div 3 item in tag div in tag p</div>
+            <div>div 4 item in tag div in tag p</div>
+            <span> tag p</span>
+            <div> div 5 item in tog div in tag 4</div>
+        </div>
+
+        <div>div 2 item in tag p</div>
+        <div>div 3 item in tag p</div>
+        <div>div 4 item in tag p</div>
+        <div>div 5 item in tag p</div>
+
+        <span>span 1 item in tag p</span>
+        <span>span 2 item in tag p</span>
+        <span>span 3 item in tag p</span>
+    </h3>
+    <!-- # tag p cannot use combinator with div or block element because tag p allowed only inline element-->
+    <p>
+        <span> span in tag p</span>
+        <span> span 2 in tag p </span>
+        <span>
+            <span>span 1 in span</span>
+            <span>span 2 in span</span>
+            <span>span 3 in span</span>
+        </span>
+        <div> div in tag p</div>
+    </p>
+
+    <h2> attribute selectors</h2>
+    <form>
+        <input type="text" title="inputForm"><br>
+        <input type="color" title="input this-color"><br>
+        <input type="date" title="input-Form"><br>
+        <input type="email" title="input_Form"><br>
+        <input type="file" title="input//Form"><br>
+        <input type="password" title="input Form"><br>
+        <input type="search" title=" this input search">
+    </form>
+
+    <h2>text decoration</h2>
+    <p class='textAlign'>Lorem ipsum dolor sit amet consectetur adipisicing elit. Quod, expedita vel eius perferendis
+        neque dicta? Nostrum quos delectus fugit enim ducimus voluptates culpa perferendis velit suscipit, incidunt
+        <strong class="verticalAlign">ab ad ratione corrupti repellendus dolore itaque est consequuntur laboriosam!
+            Alias provident totam, est, </strong>voluptas distinctio omnis, ipsa veritatis quasi modi accusantium
+        voluptate tenetur asperiores dolore fugiat quod! Beatae nobis quae debitis totam maxime corporis neque, commodi
+        praesentium doloribus rerum facere magni optio inventore, animi illo, perspiciatis architecto itaque. Provident
+        nulla, deleniti possimus perferendis commodi eius maxime soluta vitae veniam. Veritatis, magnam commodi magni
+        quidem rem nesciunt nobis expedita nam corporis inventore blanditiis ex quos a eligendi aliquam nihil aut eius.
+        Nemo totam accusamus est eligendi adipisci velit dicta. Beatae, at? Quis facilis iste natus reprehenderit cum
+        nemo inventore aliquam libero recusandae praesentium dolor modi voluptatem ipsum ducimus consequatur eveniet
+        dignissimos culpa earum sed, mollitia commodi fuga officiis sequi? Vero maxime reprehenderit iusto repellendus,
+        doloremque veniam eveniet, repellat necessitatibus impedit quidem adipisci enim explicabo. Ut quos veniam iste
+        deleniti nisi, culpa vel ab praesentium magnam delectus fuga! Rerum dolore nesciunt sequi incidunt ducimus
+        consequatur, voluptatibus quo nulla nemo molestias asperiores officiis rem expedita unde modi. Aliquid delectus,
+        eaque quod, laborum nulla consectetur sint, eos eveniet maxime labore exercitationem. Nisi maxime cupiditate
+        quia quidem doloribus culpa officiis tenetur quae, blanditiis nam temporibus a neque ad libero ea asperiores
+        fuga nesciunt voluptas enim id non accusamus molestias? Autem nostrum et temporibus similique! Non dolore
+        ducimus eos! Excepturi in molestias labore suscipit voluptate commodi nemo eos doloremque inventore fugiat eum,
+        cumque vitae nihil ipsa! Maxime ea, aliquid quos deserunt eius nemo est possimus voluptatum vel mollitia quod
+        provident obcaecati autem dolore quisquam repudiandae natus reiciendis quo ratione quia sequi molestiae sint.
+        Sed omnis facilis ab aliquam culpa architecto? Soluta cupiditate minus explicabo qui ea laboriosam tempore!
+
+    </p>
+
+    <div class="textDirection">test text</div>
+    <!-- if use span cannot use width -->
+
+    <h2>Font decoration</h2>
+    <p>Lorem ipsum dolor sit amet consectetur, adipisicing elit. Praesentium, aliquid alias molestias odio voluptatibus
+        voluptate hic quis quidem nulla non enim unde necessitatibus iure! Assumenda tempora deserunt odio culpa saepe!
+    </p>
+
+    <ul> unorder list
+        <li>list one</li>
+        <li>list two</li>
+        <li>list three</li>
+        <li>list four</li>
+    </ul>
+
+    <h2>border and table decoration</h2>
+    <div class="borderTable"> Lorem ipsum dolor sit amet consectetur adipisicing elit. Ad ducimus in id! Ipsam, corporis
+        harum. Perferendis maxime eveniet sed voluptatum?</div>
+
+    <table>
+        <caption> this is caption table</caption>
+        <thead>
+            <tr>
+                <th>Head</th>
+                <th>Head</th>
+                <th>Head</th>
+                <th>Head</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+              <td>row 1 test table layout</td>
+              <td>row 2</td>
+              <td>row 3</td>
+              <td>row 4</td>
+            </tr>
+
+            <tr>
+                <td>row 1</td>
+                <td>row 2</td>
+                <td></td>
+                <td></td>
+            </tr>
+            <tr>
+                <td>row 1</td>
+                <td>row 2</td>
+                <td></td>
+                <td></td>
+            </tr>
+            <tr>
+                <td>row 1</td>
+                <td>row 2</td>
+                <td></td>
+                <td></td>
+            </tr>
+        </tbody>
+
+    </table>
+
+    <h2> image and background decoration</h2>
+    <img src="http://www.codecampthailand.com/wp-content/uploads/2017/12/logo-1.png" alt="software park">
+    <div class="bgTest"> </div>
+
+    <h2>Padding and Margin</h2>
+    <div>Lorem ipsum dolor, sit amet consectetur adipisicing elit. Nostrum, esse?</div>
+    <div class="paddingMargin"> Lorem, ipsum dolor sit amet consectetur adipisicing elit. Odio, quisquam!</div>
+    <div>Lorem ipsum dolor sit amet consectetur adipisicing elit. Exercitationem, veniam.</div>
+
+    <h2>Display</h2>
+    <p class="pDisplay">Lorem ipsum dolor sit amet consectetur, adipisicing elit. Molestias, placeat.</p>
+    <span> span after tag p </span>
+
+</body>
+
+</html>

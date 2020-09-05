@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <style>
+        .container {
+            margin: auto;
+            padding: 1%;
+            width: 50vw;
+            border: black 10px outset;
+        }
+
+        .container>div {
+            width: 90%;
+
+        }
+
+        .highlight {
+            color: red;
+            display: inline;
+        }
+
+        .band {
+            width: 70%;
+            background-color: silver;
+        }
+
+        div {
+            margin: auto;
+        }
+        option, select{
+            min-width: 150px;
+            width: 150px;
+            max-width: 300px;
+        }
+
+        span {
+            display: inline-block;
+            width: 250px;
+            text-align: left;
+            max-width: 400px;
+        }
+
+        input {
+            width: 150px
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div>
+            <span> name <span class="highlight">*</span> : </span>
+            <span> <input type="text">
+            <button>?</button>
+            </span>
+        </div>
+        <div>
+            <span>Tab text<span class="highlight">*</span> : </span>
+            <span> <input type="text"> 
+                <button>?</button>
+            </span>
+        </div>
+        <div>
+            <span> url <span class="highlight">*</span> : </span>
+            <span style="display: inline; font-size: 15px;"> http://wwww.wizehive.com/webform <input type="text"
+                    style="width : 50px"> </span>
+        </div>
+        <div class="band"> Form setup :</div>
+        <div>
+            <span>Form :</span>
+            <span>
+                <select name="Form" id="">
+                    <option value="option1">option1</option>
+                    <option value="option2">option2</option>
+                    <option value="option3">option3</option>
+                    <option value="option4">option4</option>
+                </select>
+                <button>edit</button>
+            </span>
+        </div>
+        <div> 
+            <span> logo :</span>
+            no logo uploaded
+            <button>upload logo</button>
+            </span>
+        </div>
+        <div>
+            <span> Template Text :</span>
+            <span>
+                <select name="Form" id="">
+                    <option value="option1">option1</option>
+                    <option value="option2">option2</option>
+                    <option value="option3">option3</option>
+                    <option value="option4">option4</option>
+                </select>
+                <button>edit</button>
+            </span>
+        </div>
+        <div>
+            <span> Review form :</span>
+            <span>
+                <select name="Form" id="">
+                    <option value="option1">option1</option>
+                    <option value="option2">option2</option>
+                    <option value="option3">option3</option>
+                    <option value="option4">option4</option>
+                </select>
+            </span>
+        </div>
+        <div>
+            <span> Review score :</span>
+            <span>
+                <select name="Form" id="">
+                    <option value="option1">option1</option>
+                    <option value="option2">option2</option>
+                    <option value="option3">option3</option>
+                    <option value="option4">option4</option>
+                </select>
+                <button>Reload fields</button>
+            </span>
+        </div>
+        <div>
+            <span> Scoring type :</span>
+            <span>
+                <select name="Form" id="" style="width: 100px;">
+                    <option value="option1">option1</option>
+                    <option value="option2">option2</option>
+                    <option value="option3">option3</option>
+                    <option value="option4">option4</option>
+                </select>
+            </span>
+        </div>
+        <div>
+            <span> max score :</span>
+            <span> <input type="text"> </span>
+        </div>
+
+    </div>
+</body>
+
+</html>

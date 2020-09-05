@@ -1,0 +1,45 @@
+.container{
+    display: grid;
+    grid-template-columns:auto auto auto;
+    grid-template-rows: 100px 100px 100px 100px; 
+    /* justify-content: center; */
+    /* justify-content: space-evenly; */
+    /* justify-content: space-between; */
+    /* justify-content: space-around; */
+    /* align-items: end; */
+    grid-gap: 20px;
+     background-color: lightcyan;
+    
+}
+
+.container > div{
+    background-color: peachpuff;
+    text-align: center;
+    
+}
+
+.item5 {
+    /* grid-column: 1/4; */
+    /* grid-row: 1/4; */
+    /* grid-column: 1/span 2; */
+    /* grid-row: 1/span 3; */
+    /* grid-area: 1/1/3/3; */
+    /* grid-area: 1/1/span 2/span 3; */
+    
+} 
+/* กรณีที่พิมพ์เลขติดกับ span จะกิดอะไรขึ้น เช่น span3 */
+
+/* @media screen and (min-width: 800px){
+    .container{
+        grid-template-columns: auto auto;
+    }
+} */
+
+@media screen and (max-width: 800px){
+    .container{
+        grid-template-columns: auto auto;
+    }
+    .container > .item5{
+        grid-column: 1/3;
+    }
+}
