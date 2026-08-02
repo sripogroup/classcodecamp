@@ -94,6 +94,12 @@ param(
     [ValidateSet(1, -1)][int]$MeterSign = 1,
     [switch]$Probe,
     [switch]$Once,
+
+    # Pull one day's curve from the portal and report when grid import peaked.
+    # Answers "what do we actually hit, and at what time" from real history
+    # instead of waiting a day for the reader to collect it.
+    [switch]$History,
+    [string]$Date,
     [string]$LogFile,
 
     # Read and record, but do not send anywhere. Lets data collection start
@@ -478,6 +484,26 @@ function Get-FusionFlow {
     }
 }
 
+function Get-FusionDay {
+    <#
+        One day of 5-minute samples from the same endpoint the Energy Trend
+        chart uses. The series names are not documented, so this walks whatever
+        arrays come back rather than assuming a shape - if Huawei renames
+        things, you still get output instead of a crash.
+    #>
+    param($Session, [string]$BaseUrl, [string]$StationDn, [string]$DayStr)
+
+    $midnight = [datetime]::ParseExact($DayStr, "yyyy-MM-dd", $null)
+    $epoch = [int64]([datetimeoffset]::new($midnight, [timespan]::FromHours(7))).ToUnixTimeMilliseconds()
+
+    $url = "{0}/rest/pvms/web/station/v3/overview/energy-balance?stationDn={1}&timeDim=2&queryTime={2}&dateStr={3}&timeZone=7.0&timeZoneStr=Asia/Bangkok" -f `
+           $BaseUrl, [uri]::EscapeDataString($StationDn), $epoch, [uri]::EscapeDataString("$DayStr 00:00:00")
+
+    $raw = Invoke-RestMethod -Uri $url -WebSession $Session -TimeoutSec 40 -Headers @{ "Accept" = "application/json" }
+    if ($raw -is [string]) { throw "SESSION_EXPIRED" }
+    return $raw.data
+}
+
 function Push-Sample {
     param([string]$Worker, [string]$Token, [double]$Pv, [double]$Grid, [double]$Load)
 
@@ -501,7 +527,7 @@ if (-not $token -and -not $Probe) {
 }
 if (-not $token) { $token = $env:SOLARGUARD_INGEST_TOKEN }
 
-if (-not $Probe -and -not $NoPush) {
+if (-not $Probe -and -not $NoPush -and -not $History) {
     if (-not $WorkerUrl) {
         $store = Get-StoredSecrets
         if ($store -and $store.WorkerUrl) { $WorkerUrl = $store.WorkerUrl }
@@ -557,6 +583,63 @@ if ($Probe) {
     Write-Host ""
     Write-Host "Now open Monitoring > Overview in a browser and confirm the three"
     Write-Host "numbers match. If Grid has the wrong sign, run with -MeterSign -1."
+    return
+}
+
+if ($History) {
+    $day = if ($Date) { $Date } else { (Get-Date).ToString("yyyy-MM-dd") }
+    Write-Log "Fetching the whole day for $day"
+    $d = Get-FusionDay -Session $session -BaseUrl $Base -StationDn $Station -DayStr $day
+
+    # There is no separate time axis. Every series is a flat array covering the
+    # whole day at even spacing, so index N is minute N * (1440 / count).
+    # Values arrive as strings ("0.000"), which is why they have to be cast.
+    $series = @{}
+    foreach ($p in $d.PSObject.Properties) {
+        $v = $p.Value
+        if ($v -is [System.Array] -and $v.Count -ge 24) {
+            $ok = 0
+            foreach ($x in $v) { $o = 0.0; if ([double]::TryParse([string]$x, [ref]$o)) { $ok++ } }
+            if ($ok -gt ($v.Count * 0.6)) { $series[$p.Name] = $v }
+        }
+    }
+
+    if ($series.Count -eq 0) {
+        Write-Host "No numeric series found. Raw shape:"
+        ($d | ConvertTo-Json -Depth 3 -Compress) | Write-Host
+        return
+    }
+
+    $names = @($series.Keys | Sort-Object)
+    Write-Host ""
+    Write-Host "Series returned by the portal:"
+    foreach ($k in $names) { "  {0,-24} {1} points" -f $k, $series[$k].Count | Write-Host }
+
+    function Get-Val { param($arr, $i) $o = 0.0; if ([double]::TryParse([string]$arr[$i], [ref]$o)) { return $o } return $null }
+
+    Write-Host ""
+    Write-Host "Hourly average kW (avg / peak within the hour):"
+    $hdr = "  hour " + (($names | ForEach-Object { "{0,20}" -f $_.Substring(0, [Math]::Min(20, $_.Length)) }) -join "")
+    Write-Host $hdr
+    for ($h = 0; $h -le 23; $h++) {
+        $row = "  {0:00}   " -f $h
+        $any = $false
+        foreach ($n in $names) {
+            $arr = $series[$n]
+            $per = [int]($arr.Count / 24)
+            $vals = @()
+            for ($i = $h * $per; $i -lt (($h + 1) * $per) -and $i -lt $arr.Count; $i++) {
+                $x = Get-Val $arr $i
+                if ($null -ne $x) { $vals += $x }
+            }
+            if ($vals.Count -eq 0) { $row += "{0,20}" -f "-" }
+            else {
+                $any = $true
+                $row += "{0,20}" -f ("{0:N2} / {1:N2}" -f (($vals | Measure-Object -Average).Average), (($vals | Measure-Object -Maximum).Maximum))
+            }
+        }
+        if ($any) { Write-Host $row }
+    }
     return
 }
 

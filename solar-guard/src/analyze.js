@@ -138,6 +138,19 @@ export function evaluate(prevState, sample, cfg, now = Date.now()) {
     }
   }
 
+  // ---------- 2ข) เพดานค่า ณ ขณะนั้น — ข้ามการรอทุกอย่าง ----------
+  // sustainPolls มีไว้กันเตือนหลอนตอนเมฆบังแป๊บเดียว ซึ่งถูกสำหรับเกณฑ์เฝ้าระวัง
+  // แต่ผิดสำหรับเส้นที่โดนปรับทันที: กว่าจะครบ 2 รอบก็สายไปแล้ว
+  // ตรงนี้จึงยกระดับเป็นแดงตั้งแต่ตัวอย่างแรกที่แตะ instantTripKw
+  if (grid >= cfg.instantTripKw && state.level !== LEVELS.RED) {
+    state.level = LEVELS.RED;
+    state.levelSince = now;
+    levelChanged = true;
+    state.instantTrip = true;
+  } else if (grid < cfg.instantTripKw) {
+    state.instantTrip = false;
+  }
+
   // ---------- 3) ข้อมูลประกอบ ----------
   const cause = detectCause(state.samples, sample, cfg);
   const d15 = demand15(state.samples, sample);
@@ -255,7 +268,12 @@ export function evaluateDemand(prevState, { window, headroom, closed, sample }, 
   }
 
   // ---- 3) หน้าต่างปัจจุบันกำลังจะเกิน — ต้องรีบตอนนี้ ----
-  const atRisk = window.projectedKw >= cfg.demandActionKw || window.hardBlown;
+  // ค่าเฉลี่ยที่คาดว่าจะจบหน้าต่าง "หรือ" ค่า ณ ขณะนั้น อย่างใดอย่างหนึ่งถึงก็พอ
+  // ค่าเฉลี่ยตอบช้าเกินไปถ้าโหลดกระโดดขึ้นทีเดียว
+  const atRisk =
+    window.projectedKw >= cfg.demandActionKw ||
+    (sample.grid ?? 0) >= cfg.demandActionKw ||
+    window.hardBlown;
   if (atRisk && minutesBetween(now, state.lastDemandAlertAt || 0) >= 10) {
     state.lastDemandAlertAt = now;
     events.push({ type: 'demand_risk', window, headroom, sample });

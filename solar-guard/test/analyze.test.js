@@ -67,13 +67,28 @@ test('ไฟหลวงต่ำ = เขียว ไม่มีการเ�
 });
 
 test('เมฆบังแป๊บเดียว (เกินเกณฑ์รอบเดียว) ต้องไม่เตือน', () => {
+  // ค่าที่ใช้ต้องต่ำกว่า instantTripKw ไม่งั้นจะไปเข้าเส้น "ณ ขณะนั้น"
+  // ซึ่งตั้งใจให้เตือนทันทีอยู่แล้ว การกันเตือนหลอนใช้ได้เฉพาะใต้เส้นนั้น
   const out = feed(emptyState(), [
     { pv: 60, grid: 3 },
-    { pv: 20, grid: 35 }, // เมฆบัง 5 นาที
+    { pv: 20, grid: 20 }, // เมฆบัง 5 นาที
     { pv: 58, grid: 4 }, // แดดกลับมา
   ]);
   assert.equal(out.state.level, 'green', 'ยังต้องเป็นเขียว');
   assert.equal(out.events.length, 0, 'ห้ามมีข้อความเตือน');
+});
+
+test('แตะเส้น "ณ ขณะนั้น" ครั้งเดียว = แดงทันที ไม่รอรอบที่สอง', () => {
+  // โรงงานนี้โดนปรับจากค่า ณ ขณะนั้น ไม่ใช่ค่าเฉลี่ย 15 นาที
+  // กว่าจะครบ SUSTAIN_POLLS ก็สายไปแล้ว เส้นนี้จึงข้ามการรอทั้งหมด
+  const out = feed(emptyState(), [
+    { pv: 60, grid: 3 },
+    { pv: 10, grid: cfg.instantTripKw + 1 },
+  ]);
+  assert.equal(out.state.level, 'red', 'ต้องแดงตั้งแต่ตัวอย่างแรกที่แตะเส้น');
+  const alerts = out.events.filter((e) => e.type === 'alert');
+  assert.equal(alerts.length, 1, 'ต้องเตือนในรอบเดียวกันนั้นเลย');
+  assert.equal(alerts[0].level, 'red');
 });
 
 test('เกินเกณฑ์แดงต่อเนื่อง 10 นาที = เตือนแดง 1 ครั้ง', () => {
@@ -83,7 +98,9 @@ test('เกินเกณฑ์แดงต่อเนื่อง 10 นา�
     { pv: 18, grid: 36 },
   ]);
   assert.equal(out.state.level, 'red');
-  const alerts = out.events.filter((e) => e.type === 'alert');
+  // ค่า 35 เกินเส้น "ณ ขณะนั้น" จึงเตือนตั้งแต่ตัวอย่างที่ 2 ไม่ใช่ตัวอย่างที่ 3
+  // ต้องนับจาก allEvents และต้องได้ใบเดียวเท่านั้น (ตัวอย่างที่ 3 ห้ามเตือนซ้ำ)
+  const alerts = out.allEvents.filter((e) => e.type === 'alert');
   assert.equal(alerts.length, 1);
   assert.equal(alerts[0].level, 'red');
 });
@@ -227,8 +244,10 @@ test('ข้อความแดงต้องมีตัวเลข kW เ�
     { pv: 20, grid: 35 },
     { pv: 18, grid: 36 },
   ]);
-  const msg = buildMessage(out.events.find((e) => e.type === 'alert'), cfg, NOON);
-  assert.match(msg.telegram, /36 kW/);
+  // เตือนตั้งแต่ตัวอย่างที่ 2 (35 kW) เพราะเกินเส้น "ณ ขณะนั้น" แล้ว
+  // ข้อความจึงต้องอ้างค่าที่ทำให้เตือน ไม่ใช่ค่าล่าสุด
+  const msg = buildMessage(out.allEvents.find((e) => e.type === 'alert'), cfg, NOON);
+  assert.match(msg.telegram, /35 kW/);
   assert.match(msg.telegram, /บาท\/ชั่วโมง/);
   assert.match(msg.telegram, /ให้ทำตามลำดับนี้/);
   assert.match(msg.telegram, /\/ack/);
