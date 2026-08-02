@@ -13,7 +13,7 @@ crons = ["*/5 * * * *", "30 10 * * *"]
 # แล้วเอา id ที่ได้มาใส่ตรงนี้
 [[kv_namespaces]]
 binding = "SOLAR_KV"
-id = "ใส่_KV_NAMESPACE_ID_ตรงนี้"
+id = "77a220196144463b8b4688eca61231cc"
 
 [observability]
 enabled = true
@@ -21,6 +21,11 @@ enabled = true
 # ---- ค่าตั้งที่ไม่ใช่ความลับ แก้ได้ตรงนี้หรือแก้ทีหลังในหน้าเว็บ Cloudflare ----
 [vars]
 SITE_NAME = "โรงงาน"
+
+# แหล่งข้อมูล: push = ตัวอ่านในโรงงาน (FusionWebReader.ps1) ส่งเข้ามาเอง
+# ต้องเป็น push เท่านั้น เพราะบัญชีนี้ไม่มีสิทธิ์ Northbound API
+# ถ้าเผลอปล่อยเป็น api ระบบจะยิงหา API ที่เรียกไม่ได้ทุก 5 นาที
+DATA_SOURCE = "push"
 # โซนเซิร์ฟเวอร์ตามที่เห็นใน URL ของ FusionSolar (ของที่นี่คือ sg5)
 FUSION_BASE = "https://sg5.fusionsolar.huawei.com"
 FUSION_STATION_CODE = "NE=50174729"
@@ -87,7 +92,7 @@ DAILY_TASKS = '[{"id":"ac_1500","name":"ปิดแอร์ 3 ตัว","at":
 # ซึ่งเป็นช่วงที่อันตรายที่สุด ไม่ใช่ตอนกลางวัน (ดูเหตุผลใน docs/ALERTING.md หัวข้อ 1.6)
 NIGHT_WATCH = "true"
 NIGHT_START_HOUR = "18"
-NIGHT_IDLE_KW = "5"
+NIGHT_IDLE_KW = "3"
 
 # ค่าไฟ
 TARIFF_ON_PEAK = "4.5"

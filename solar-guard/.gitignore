@@ -4,3 +4,8 @@ node_modules/
 .dev.vars.*
 !.dev.vars.example
 *.log
+
+# ตัวอ่านในโรงงาน — ไฟล์ที่มีสิทธิ์เข้าบัญชี ห้ามขึ้น git เด็ดขาด
+local-reader/fusion-cred.xml
+local-reader/cookies.txt
+__pycache__/

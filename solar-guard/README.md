@@ -27,7 +27,7 @@
 | ตรรกะการเตือน / คิด demand / เฝ้างานประจำ / ตัดโหลด | ✅ ทดสอบแล้ว 112 ข้อ ผ่านหมด |
 | เส้นทางเต็ม (ดึงข้อมูล → ส่ง Telegram → เก็บ KV) | ✅ ทดสอบแล้วโดย**จำลอง** API |
 | มีมิเตอร์วัดฝั่งการไฟฟ้าไหม | ✅ **ยืนยันแล้วว่ามี** (ดูหลักฐานข้างล่าง) |
-| ต่อกับบัญชี FusionSolar จริง | 🛑 **ติดอยู่ตรงนี้** — ดูหัวข้อ "ช่องทางข้อมูล" ข้างล่าง |
+| ต่อกับบัญชี FusionSolar จริง | 🟡 **เจอช่องทางแล้ว** — ดึงจากหน้าเว็บ ([`local-reader/README-FusionWeb.md`](local-reader/README-FusionWeb.md)) เหลือทดสอบ login ด้วยรหัสจริง |
 | deploy ขึ้น Cloudflare | ❌ **ยังไม่ได้** — ต้องใช้บัญชี Cloudflare ของคุณ |
 | ส่งเข้ากลุ่ม Telegram จริง | ❌ ยังไม่ได้ — ต้องใช้ bot token ของคุณ |
 
@@ -40,10 +40,28 @@
 | Northbound API | เมนู System ไม่มี Northbound Management (บัญชีระดับเจ้าของ) | ❌ ต้องขอจากดีลเลอร์ |
 | Kiosk View | มีแต่ข้อมูลฝั่งผลิต ไม่มีฝั่งซื้อไฟ/โหลด | ❌ ใช้ไม่ได้ |
 | Modbus TCP ในวง LAN | เจอ 192.168.1.26 (MAC ยืนยันว่า Huawei) แต่ SDongle เฟิร์มแวร์ **SPC116** ซึ่งต่ำกว่า **SPC127** ที่ Modbus TCP ต้องการ | ❌ เฟิร์มแวร์ไม่รองรับ |
-| ดึงจากหน้าเว็บ FusionSolar | ยังไม่ได้ลอง — ต้องรู้ URL ที่หน้า Overview เรียกก่อน | ⏳ ทำได้ ยังไม่ได้ทำ |
+| ดึงจากหน้าเว็บ FusionSolar | **เจอ endpoint แล้ว** `GET /rest/pvms/web/station/v3/overview/energy-flow` คืนค่า PV / Grid / Load ครบทั้งสามตัว — เขียนตัวอ่านเสร็จแล้ว (`local-reader/FusionWebReader.ps1`) | 🟡 ใช้ได้ เหลือทดสอบ login |
 | มิเตอร์แยกของตัวเอง | ~5,000 บาท ไม่พึ่ง Huawei เลย | ⏳ ทางสำรอง |
 
-**ทางที่เหนื่อยน้อยที่สุด: โทรหาดีลเลอร์** พร้อมข้อมูลนี้
+#### 🟡 ทางที่ใช้ได้ตอนนี้: ดึงจากหน้าเว็บ
+
+หา endpoint ที่หน้า Monitoring → Overview เรียกเจอแล้ว (2 ส.ค. 2569):
+
+```
+GET /rest/pvms/web/station/v3/overview/energy-flow?stationDn=NE%3D50174729&featureId=aifc
+```
+
+คืนค่าครบทั้งสามตัวที่ระบบนี้ต้องใช้ — PV / **Grid (ฝั่งซื้อไฟ)** / Load
+และ `PV + Grid = Load` ลงตัวทุกรอบที่สุ่มตรวจ
+
+ตัวอ่านเขียนเสร็จแล้วที่ [`local-reader/FusionWebReader.ps1`](local-reader/FusionWebReader.ps1)
+(PowerShell ล้วน ไม่ต้องมี Python) ส่งเข้า `POST /api/ingest` โหมด push
+**ส่วนอ่านค่ากับ parse ทดสอบผ่านแล้วกับ response จริง** เหลือจุดเดียวที่ยังไม่ได้พิสูจน์คือ
+การ login อัตโนมัติ — tenant นี้ใช้ auth stack ใหม่ (UIDM) ซึ่งอาจไม่รับ
+`validateUser.action` แบบเดิม ถ้าไม่ผ่านมีโหมดใช้คุกกี้รองไว้แล้ว
+รายละเอียดทั้งหมดอยู่ใน [`local-reader/README-FusionWeb.md`](local-reader/README-FusionWeb.md)
+
+**ทางที่ยั่งยืนกว่าในระยะยาว: โทรหาดีลเลอร์** พร้อมข้อมูลนี้
 > SDongleA-05 SN HV2070010866 เฟิร์มแวร์ V100R001C00SPC116
 > ขออัปเกรดเฟิร์มแวร์แล้วเปิด Modbus TCP **หรือ** ขอบัญชี Northbound API
 > (อย่างใดอย่างหนึ่งก็พอ)
