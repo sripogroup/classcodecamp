@@ -100,6 +100,12 @@ param(
     # instead of waiting a day for the reader to collect it.
     [switch]$History,
     [string]$Date,
+
+    # Scan a date range and report the worst grid-import moment of each day.
+    # Used to find out what actually happened on the days that triggered a
+    # tariff penalty, instead of guessing from memory.
+    [string]$From,
+    [string]$To,
     [string]$LogFile,
 
     # Read and record, but do not send anywhere. Lets data collection start
@@ -527,7 +533,7 @@ if (-not $token -and -not $Probe) {
 }
 if (-not $token) { $token = $env:SOLARGUARD_INGEST_TOKEN }
 
-if (-not $Probe -and -not $NoPush -and -not $History) {
+if (-not $Probe -and -not $NoPush -and -not $History -and -not $From) {
     if (-not $WorkerUrl) {
         $store = Get-StoredSecrets
         if ($store -and $store.WorkerUrl) { $WorkerUrl = $store.WorkerUrl }
@@ -583,6 +589,75 @@ if ($Probe) {
     Write-Host ""
     Write-Host "Now open Monitoring > Overview in a browser and confirm the three"
     Write-Host "numbers match. If Grid has the wrong sign, run with -MeterSign -1."
+    return
+}
+
+if ($From) {
+    $start = [datetime]::ParseExact($From, "yyyy-MM-dd", $null)
+    $end = if ($To) { [datetime]::ParseExact($To, "yyyy-MM-dd", $null) } else { $start }
+    Write-Log ("Scanning {0} to {1} - one sign-in, one request per day" -f $From, $end.ToString("yyyy-MM-dd"))
+
+    Write-Host ""
+    Write-Host "  date         peak grid   at      peak load   peak PV   grid kWh-ish"
+    Write-Host "  ----------   ---------   -----   ---------   -------   ------------"
+
+    $over20 = @()
+    $over30 = @()
+    $d = $start
+    while ($d -le $end) {
+        $ds = $d.ToString("yyyy-MM-dd")
+        try {
+            $day = Get-FusionDay -Session $session -BaseUrl $Base -StationDn $Station -DayStr $ds
+        } catch {
+            if ($_.Exception.Message -eq "SESSION_EXPIRED") {
+                Write-Log "Session expired mid-scan - signing in again" "WARN"
+                $session = New-FusionSession -BaseUrl $Base
+                try { $day = Get-FusionDay -Session $session -BaseUrl $Base -StationDn $Station -DayStr $ds }
+                catch { Write-Host ("  {0}   (failed)" -f $ds); $d = $d.AddDays(1); continue }
+            } else {
+                Write-Host ("  {0}   (failed: {1})" -f $ds, $_.Exception.Message)
+                $d = $d.AddDays(1); continue
+            }
+        }
+
+        $grid = $day.meterActivePower
+        $load = $day.usePower
+        $pv = $day.productPower
+        if (-not $grid) { Write-Host ("  {0}   (no data)" -f $ds); $d = $d.AddDays(1); continue }
+
+        $n = $grid.Count
+        $maxG = -9999.0; $maxAt = -1; $sumG = 0.0
+        for ($i = 0; $i -lt $n; $i++) {
+            $o = 0.0
+            if ([double]::TryParse([string]$grid[$i], [ref]$o)) {
+                if ($o -gt $maxG) { $maxG = $o; $maxAt = $i }
+                if ($o -gt 0) { $sumG += $o }
+            }
+        }
+        $minPer = 1440 / $n
+        $tm = if ($maxAt -ge 0) { "{0:00}:{1:00}" -f [int](($maxAt * $minPer) / 60), [int](($maxAt * $minPer) % 60) } else { "--:--" }
+
+        function MaxOf { param($arr) $m = 0.0; foreach ($x in $arr) { $o = 0.0; if ([double]::TryParse([string]$x, [ref]$o)) { if ($o -gt $m) { $m = $o } } } return $m }
+        $maxL = if ($load) { MaxOf $load } else { 0 }
+        $maxP = if ($pv) { MaxOf $pv } else { 0 }
+        $kwh = $sumG * ($minPer / 60.0)
+
+        $flag = ""
+        if ($maxG -ge 30) { $flag = "  <<< OVER 30"; $over30 += $ds }
+        elseif ($maxG -ge 20) { $flag = "  <<  over 20"; $over20 += $ds }
+
+        Write-Host ("  {0}   {1,9:N2}   {2}   {3,9:N2}   {4,7:N2}   {5,12:N1}{6}" -f $ds, $maxG, $tm, $maxL, $maxP, $kwh, $flag)
+
+        $d = $d.AddDays(1)
+        Start-Sleep -Milliseconds 400
+    }
+
+    Write-Host ""
+    Write-Host ("Days peaking at 30 kW or more: {0}" -f $(if ($over30.Count) { $over30 -join ", " } else { "none" }))
+    Write-Host ("Days peaking at 20-30 kW:      {0}" -f $(if ($over20.Count) { $over20 -join ", " } else { "none" }))
+    Write-Host ""
+    Write-Host "Note: this history is 5-minute averages from the portal. A shorter"
+    Write-Host "spike between samples would not show up here at all."
     return
 }
 
