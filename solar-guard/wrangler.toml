@@ -30,12 +30,35 @@ SYSTEM_KWP = "100"
 # วิธีเช็ค: เปิด /api/poll ตอนกลางคืน ถ้า grid ติดลบ ให้เปลี่ยนเป็น "-1"
 METER_SIGN = "1"
 
-# เกณฑ์เตือน (kW ของไฟที่ซื้อจากการไฟฟ้า) — ปรับตามโรงงาน ดูวิธีตั้งใน docs/ALERTING.md
-WARN_IMPORT_KW = "15"
-CRIT_IMPORT_KW = "30"
-HYSTERESIS_KW = "5"
+# ====== เส้นตายของการไฟฟ้า — ส่วนที่สำคัญที่สุดในไฟล์นี้ ======
+# ประเภทที่ 2 ถ้าเดือนไหนมีค่าเฉลี่ย 15 นาทีสูงสุด >= 30 kW แม้แค่ครั้งเดียว
+# จะถูกย้ายไปประเภทที่ 3 และต้องต่ำกว่า 30 kW ติดต่อกัน 12 เดือนถึงจะกลับมาได้
+DEMAND_LIMIT_KW = "30"     # ห้ามแตะเด็ดขาด
+DEMAND_TARGET_KW = "27"    # เป้าที่ระบบคุมไว้ (เผื่อ margin 3 kW)
+DEMAND_ACTION_KW = "24"    # ถึงตรงนี้เริ่มตัดโหลดอัตโนมัติ
+DEMAND_RESTORE_KW = "18"   # ลงมาต่ำกว่านี้ถึงเปิดกลับ
+TIER_PENALTY_PER_MONTH = "3000"   # ประเมินส่วนต่างค่าไฟถ้าโดนย้ายประเภท (บาท/เดือน)
+
+# เกณฑ์เตือนคน (kW ของไฟที่ซื้อจากการไฟฟ้า) — ดูวิธีตั้งใน docs/ALERTING.md
+WARN_IMPORT_KW = "20"
+CRIT_IMPORT_KW = "26"
+HYSTERESIS_KW = "3"
 SUSTAIN_POLLS = "2"
 RECOVER_POLLS = "3"
+
+# ====== ตัดโหลดอัตโนมัติ ======
+# off = แค่เตือนคน (เริ่มด้วยอันนี้) / dryrun = บอกว่าจะสั่งอะไรแต่ไม่สั่งจริง / on = สั่งจริง
+AUTOSHED_MODE = "off"
+SHED_MARGIN_KW = "2"
+AUTOSHED_MIN_OFF_MIN = "10"       # ปิดแล้วต้องปิดค้างอย่างน้อยกี่นาที (กันคอมเพรสเซอร์พัง)
+AUTOSHED_MIN_ON_MIN = "15"        # เปิดกลับแล้วต้องเปิดค้างอย่างน้อยกี่นาที
+AUTOSHED_MAX_OFF_MIN = "30"       # ปิดต่อเนื่องนานสุด แล้วหมุนเวียนไปโซนอื่น
+AUTOSHED_MAX_ZONES = "3"          # ปิดพร้อมกันได้มากสุดกี่โซน
+AUTOSHED_RESTORE_GAP_MIN = "3"    # เปิดกลับห่างกันกี่นาที (กันกระชากพร้อมกัน)
+
+# โซนที่ระบบสั่งได้ — priority น้อย = ยอมให้ปิดก่อน, protected = ห้ามแตะ
+# driver "pull" = ตัวควบคุมในโรงงานมาอ่าน /api/zones เอง (แนะนำ) ดู docs/AUTOSHED.md
+ZONES = '[{"id":"ac_office2","name":"แอร์ออฟฟิศชั้น 2","kw":12,"priority":1,"driver":"pull"},{"id":"ac_meeting","name":"แอร์ห้องประชุม","kw":6,"priority":2,"driver":"pull"},{"id":"pump_backup","name":"ปั๊มน้ำสำรอง","kw":7,"priority":3,"driver":"pull"},{"id":"ac_server","name":"แอร์ห้องเซิร์ฟเวอร์","kw":4,"priority":9,"driver":"pull","protected":true}]'
 
 # กันสแปม
 REPEAT_MIN = "30"
@@ -55,8 +78,6 @@ NIGHT_IDLE_KW = "8"
 TARIFF_ON_PEAK = "4.5"
 TARIFF_OFF_PEAK = "2.8"
 USE_TOU = "false"
-PEAK_DEMAND_TARGET_KW = "0"
-DEMAND_CHARGE = "0"
 
 # รายการอุปกรณ์ที่ให้พนักงานไปปิด เรียงตาม kW ที่ลดได้
 LOAD_SHED_LIST = '[{"name":"แอร์ออฟฟิศชั้น 2","kw":12,"owner":"ธุรการ"},{"name":"แอร์ห้องประชุม (ถ้าไม่มีประชุม)","kw":6,"owner":"ธุรการ"},{"name":"ปั๊มน้ำสำรอง","kw":7,"owner":"ช่างซ่อมบำรุง"},{"name":"เลื่อนเดินคอมเพรสเซอร์ตัวที่ 2","kw":15,"owner":"หัวหน้ากะ"}]'

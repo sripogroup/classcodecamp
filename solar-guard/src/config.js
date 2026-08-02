@@ -27,10 +27,18 @@ export function loadConfig(env = {}) {
     meterSign: num(env.METER_SIGN, 1),
     includeBattery: bool(env.INCLUDE_BATTERY, true),
 
-    // ---------- เกณฑ์แจ้งเตือน (หน่วย kW ของ "ไฟที่ดึงจากการไฟฟ้า") ----------
-    warnKw: num(env.WARN_IMPORT_KW, 15), // 🟡 เริ่มเฝ้าระวัง
-    critKw: num(env.CRIT_IMPORT_KW, 30), // 🔴 ต้องลดโหลดทันที
-    hysteresisKw: num(env.HYSTERESIS_KW, 5), // กันเด้งไปมาแถวเส้นเกณฑ์
+    // ---------- เส้นตายของการไฟฟ้า (สำคัญที่สุดในไฟล์นี้) ----------
+    // ผู้ใช้ไฟประเภทที่ 2 ถ้าเดือนไหนมีค่าเฉลี่ย 15 นาทีสูงสุด >= 30 kW แม้แค่ครั้งเดียว
+    // จะถูกย้ายไปประเภทที่ 3 และต้องต่ำกว่า 30 kW ติดต่อกัน 12 เดือนถึงจะกลับมาได้
+    demandLimitKw: num(env.DEMAND_LIMIT_KW, 30), // ❌ ห้ามแตะเด็ดขาด
+    demandTargetKw: num(env.DEMAND_TARGET_KW, 27), // 🎯 เป้าที่ระบบพยายามคุมไว้ (เผื่อ margin จากเส้นตาย)
+    demandActionKw: num(env.DEMAND_ACTION_KW, 24), // 🤖 ถึงตรงนี้เริ่มตัดโหลดอัตโนมัติ
+    demandRestoreKw: num(env.DEMAND_RESTORE_KW, 18), // ✅ ลงมาต่ำกว่านี้ถึงจะเปิดกลับ
+
+    // ---------- เกณฑ์แจ้งเตือนคน (หน่วย kW ของ "ไฟที่ดึงจากการไฟฟ้า") ----------
+    warnKw: num(env.WARN_IMPORT_KW, 20), // 🟡 เริ่มเฝ้าระวัง
+    critKw: num(env.CRIT_IMPORT_KW, 26), // 🔴 ต้องลดโหลดทันที ก่อนจะถึงเส้นตาย
+    hysteresisKw: num(env.HYSTERESIS_KW, 3), // กันเด้งไปมาแถวเส้นเกณฑ์
 
     // ต้องเกินเกณฑ์ติดกันกี่รอบถึงจะเตือน (1 รอบ = 5 นาที)
     sustainPolls: num(env.SUSTAIN_POLLS, 2), // = เกิน 10 นาทีจริงถึงเตือน (เมฆบังแป๊บเดียวไม่เตือน)
@@ -66,8 +74,24 @@ export function loadConfig(env = {}) {
     tariffOnPeak: num(env.TARIFF_ON_PEAK, 4.5), // บาท/kWh
     tariffOffPeak: num(env.TARIFF_OFF_PEAK, 2.8),
     useTou: bool(env.USE_TOU, false), // ถ้าใช้อัตรา TOU ให้เปิด
-    demandChargeBahtPerKw: num(env.DEMAND_CHARGE, 0), // ค่าความต้องการพลังไฟฟ้า บาท/kW ถ้ามี
-    peakDemandTargetKw: num(env.PEAK_DEMAND_TARGET_KW, 0), // เพดาน demand ที่ไม่อยากให้เกิน (0 = ปิด)
+    // ส่วนต่างค่าไฟต่อเดือนถ้าโดนย้ายไปประเภทที่ 3 (ใช้บอกว่า "พลาดครั้งเดียวเสียเท่าไหร่")
+    tierPenaltyPerMonth: num(env.TIER_PENALTY_PER_MONTH, 3000),
+
+    // ---------- ตัดโหลดอัตโนมัติ ----------
+    // off    = ไม่ทำอะไร แค่เตือนคน (ค่าเริ่มต้น — ปลอดภัยที่สุด)
+    // dryrun = คิดครบทุกอย่างและรายงานว่าจะสั่งอะไร แต่ไม่สั่งจริง (ใช้ทดสอบ 1-2 สัปดาห์)
+    // on     = สั่งจริง
+    autoshedMode: ['off', 'dryrun', 'on'].includes(str(env.AUTOSHED_MODE, 'off')) ? str(env.AUTOSHED_MODE, 'off') : 'off',
+    shedMarginKw: num(env.SHED_MARGIN_KW, 2), // ตัดเผื่อไว้อีกนิด กันตัดไม่พอ
+    autoshedMinOffMin: num(env.AUTOSHED_MIN_OFF_MIN, 10), // ปิดแล้วต้องปิดค้างอย่างน้อยกี่นาที (กันคอมเพรสเซอร์พัง)
+    autoshedMinOnMin: num(env.AUTOSHED_MIN_ON_MIN, 15), // เปิดกลับแล้วต้องเปิดค้างอย่างน้อยกี่นาที
+    autoshedMaxOffMin: num(env.AUTOSHED_MAX_OFF_MIN, 30), // ปิดต่อเนื่องนานสุด แล้วหมุนเวียนไปโซนอื่น
+    autoshedMaxZones: num(env.AUTOSHED_MAX_ZONES, 3), // ปิดพร้อมกันได้มากสุดกี่โซน
+    autoshedRestoreGapMin: num(env.AUTOSHED_RESTORE_GAP_MIN, 3), // เปิดกลับห่างกันกี่นาที (กันกระชากพร้อมกัน)
+
+    // โซนที่ระบบสั่งได้ ตั้งเป็น JSON ที่ตัวแปร ZONES — ดูตัวอย่างใน docs/AUTOSHED.md
+    // priority น้อย = ยอมให้ปิดก่อน, protected = ห้ามแตะเด็ดขาด
+    zones: parseJson(env.ZONES, []),
 
     // ---------- รายการสิ่งที่ให้พนักงานไปปิด (เรียงจากปิดง่าย/คุ้มสุดก่อน) ----------
     // ตั้งเป็น JSON บน Cloudflare ได้: LOAD_SHED_LIST

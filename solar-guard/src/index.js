@@ -9,7 +9,10 @@
 
 import { loadConfig } from './config.js';
 import { FusionSolar } from './fusionsolar.js';
-import { emptyState, evaluate } from './analyze.js';
+import { emptyState, evaluate, evaluateDemand } from './analyze.js';
+import { emptyDemand, feedDemand, monthHeadroom, windowView } from './demand.js';
+import { decideShed, desiredMap, emptyShedState } from './autoshed.js';
+import { applyZone } from './drivers/index.js';
 import { buildDailySummary, buildMessage } from './messages.js';
 import { sendTelegram, setTelegramWebhook } from './notify/telegram.js';
 import { sendEmail } from './notify/email.js';
@@ -42,6 +45,22 @@ export default {
       }
 
       if (path === '/api/state') return json(await publicState(env, cfg));
+
+      // ตัวควบคุมในโรงงาน (ESP32 / Shelly) ดึงอันนี้ไปสั่งรีเลย์เอง
+      // Cloudflare Workers เรียกเข้า LAN ไม่ได้ จึงต้องให้ฝั่งโรงงานเป็นคนถามเข้ามา
+      if (path === '/api/zones') {
+        const state = await readState(env);
+        const last = state.samples?.[state.samples.length - 1];
+        const stale = !last || minutesBetween(Date.now(), last.t) > STALE_MINUTES;
+        return json({
+          // ⚠️ ถ้า stale = true ตัวควบคุมต้องเปิดทุกโซนกลับ (fail-safe)
+          // ระบบเงียบต้องไม่แปลว่า "ปิดแอร์ค้างไว้ต่อไป"
+          stale,
+          mode: cfg.autoshedMode,
+          updatedAt: last ? last.t : null,
+          zones: stale ? allOn(cfg) : desiredMap(state.shed || emptyShedState(), cfg.zones || []),
+        });
+      }
 
       if (path === '/api/history') {
         const state = await readState(env);
@@ -117,14 +136,66 @@ async function poll(env, cfg) {
     bat: round1(reading.batteryKw),
   };
 
+  // ---- 1) คิดค่า demand ตามหน้าต่าง 15 นาทีของการไฟฟ้า ----
+  const demandRes = feedDemand(prev.demand || emptyDemand(), now, sample.grid, cfg);
+  const headroom = monthHeadroom(demandRes.demand, cfg);
+
+  // ---- 2) สายที่หนึ่ง: เตือนคนเรื่องค่าไฟ (มีการหน่วงเวลากันเตือนหลอก) ----
   const { state, events, cause, demand15, actions } = evaluate(prev, sample, cfg, now);
+  state.demand = demandRes.demand;
   state.dayPvKwh = reading.dayPvKwh;
   state.cause = cause.text;
   state.actions = actions;
   state.demand15 = round1(demand15);
+  state.window = demandRes.window;
+  state.headroom = headroom;
 
+  // ---- 3) สายที่สอง: ป้องกันเพดานการไฟฟ้า (ไม่หน่วงเวลา) ----
+  const demandEval = evaluateDemand(
+    state,
+    { window: demandRes.window, headroom, closed: demandRes.closed, sample },
+    cfg,
+    now,
+  );
+  Object.assign(state, demandEval.state);
+  const allEvents = [...events, ...demandEval.events.map((e) => ({ ...e, actions }))];
+
+  // ---- 4) ตัดโหลดอัตโนมัติ ----
+  const shedRes = decideShed(
+    prev.shed || emptyShedState(),
+    {
+      powerNow: sample.grid,
+      projectedKw: demandRes.window.projectedKw,
+      allowedRestKw: demandRes.window.allowedRestKw,
+      remainMin: demandRes.window.remainMin,
+      monthPeakKw: headroom.peakKw,
+    },
+    cfg,
+    now,
+  );
+  state.shed = shedRes.shedState;
+
+  const applied = [];
+  if (shedRes.actions.length && cfg.autoshedMode !== 'off') {
+    const dryRun = cfg.autoshedMode === 'dryrun';
+    for (const a of shedRes.actions) {
+      const zone = (cfg.zones || []).find((z) => z.id === a.id);
+      applied.push({ ...a, result: zone ? await applyZone(zone, a.to === 'on', dryRun) : { ok: false, error: 'ไม่พบโซน' } });
+    }
+    const offs = shedRes.actions.filter((a) => a.to === 'off');
+    allEvents.push({
+      type: offs.length ? 'shed' : 'restore',
+      changes: shedRes.actions,
+      window: demandRes.window,
+      headroom,
+      sample,
+      dryRun,
+    });
+  }
+
+  // ---- 5) ส่งข้อความ ----
   const sent = [];
-  for (const ev of events) {
+  for (const ev of allEvents) {
     const msg = buildMessage(ev, cfg, now);
     if (!msg) continue;
     const tg = await sendTelegram(cfg, msg.telegram, { toBoss: !!msg.toBoss, silent: msg.priority === 'low' });
@@ -135,7 +206,23 @@ async function poll(env, cfg) {
   }
 
   await writeState(env, state);
-  return { ok: true, sample, level: state.level, cause: cause.text, demand15: round1(demand15), sent };
+  return {
+    ok: true,
+    sample,
+    level: state.level,
+    cause: cause.text,
+    window: {
+      elapsedMin: demandRes.window.elapsedMin,
+      remainMin: demandRes.window.remainMin,
+      avgSoFarKw: round1(demandRes.window.avgSoFarKw),
+      projectedKw: round1(demandRes.window.projectedKw),
+      allowedRestKw: round1(demandRes.window.allowedRestKw),
+    },
+    monthPeakKw: round1(headroom.peakKw),
+    headroomKw: round1(headroom.headroomKw),
+    autoshed: { mode: cfg.autoshedMode, needKw: shedRes.needKw, actions: applied },
+    sent,
+  };
 }
 
 /* ---------------------------------------------------------------- สรุปประจำวัน */
@@ -143,7 +230,7 @@ async function poll(env, cfg) {
 async function dailySummary(env, cfg) {
   const now = Date.now();
   const state = await readState(env);
-  const msg = buildDailySummary(state, cfg, now);
+  const msg = buildDailySummary(state, cfg, now, monthHeadroom(state.demand || emptyDemand(), cfg));
   if (!msg) return { ok: false, error: 'ยังไม่มีข้อมูลของวันนี้' };
 
   await sendTelegram(cfg, msg.telegram, { silent: true });
@@ -188,11 +275,44 @@ async function handleTelegramWebhook(request, env, cfg) {
     return json({ ok: true });
   }
 
+  // เปิดอุปกรณ์ที่ระบบสั่งปิดไว้กลับมาทั้งหมด (คนสั่งชนะระบบเสมอ)
+  if (cmd === '/restore' || cmd === '/เปิดกลับ') {
+    const zones = cfg.zones || [];
+    const offZones = zones.filter((z) => state.shed?.zones?.[z.id]?.off);
+    const shed = { ...(state.shed || emptyShedState()), zones: { ...(state.shed?.zones || {}) } };
+    for (const z of offZones) {
+      shed.zones[z.id] = { ...shed.zones[z.id], off: false, changedAt: now, reason: `เปิดกลับโดย ${name}` };
+      if (cfg.autoshedMode === 'on') await applyZone(z, true, false);
+    }
+    // กันระบบสั่งปิดซ้ำทันที ให้เวลาคนจัดการก่อน
+    await writeState(env, { ...state, shed, mutedUntil: now + 30 * 60000 });
+    await sendTelegram(
+      cfg,
+      offZones.length
+        ? `✅ เปิดกลับ ${offZones.length} โซนแล้ว (โดย ${escapeTg(name)})\n${offZones.map((z) => `• ${escapeTg(z.name)}`).join('\n')}\n\n<i>ระบบจะไม่สั่งปิดอัตโนมัติอีก 30 นาที</i>`
+        : `ตอนนี้ไม่มีโซนไหนถูกสั่งปิดอยู่ครับ`,
+      { silent: true },
+    );
+    return json({ ok: true });
+  }
+
   if (cmd === '/status' || cmd === '/สถานะ') {
     const s = state.samples?.[state.samples.length - 1];
     const icon = { green: '🟢 ปกติ', yellow: '🟡 เฝ้าระวัง', red: '🔴 ต้องลดโหลด' }[state.level] || '⚪ ไม่มีข้อมูล';
+    const h = monthHeadroom(state.demand || emptyDemand(), cfg);
+    const w = state.window;
+    const offZones = (cfg.zones || []).filter((z) => state.shed?.zones?.[z.id]?.off);
     const body = s
-      ? `${icon}\nดึงไฟหลวง <b>${round1(s.grid)} kW</b> | โซลาร์ ${round1(s.pv)} kW | โหลด ${round1(s.load)} kW\nข้อมูลเมื่อ ${hhmm(s.t)} น.`
+      ? [
+          icon,
+          `ดึงไฟหลวง <b>${round1(s.grid)} kW</b> | โซลาร์ ${round1(s.pv)} kW | โหลด ${round1(s.load)} kW`,
+          w ? `⏱ หน้าต่างนี้เหลือ ${w.remainMin} นาที คาดจบที่ <b>${round1(w.projectedKw)} kW</b>` : '',
+          `📅 พีคเดือนนี้ <b>${round1(h.peakKw)} kW</b> / เพดาน ${h.limitKw} kW — เหลือระยะ ${round1(h.headroomKw)} kW`,
+          offZones.length ? `⛔ ถูกสั่งปิดอยู่: ${offZones.map((z) => escapeTg(z.name)).join(', ')}` : '',
+          `ข้อมูลเมื่อ ${hhmm(s.t)} น.`,
+        ]
+          .filter(Boolean)
+          .join('\n')
       : `${icon}\nยังไม่มีข้อมูล`;
     await sendTelegram(cfg, body, { silent: true });
     return json({ ok: true });
@@ -201,7 +321,7 @@ async function handleTelegramWebhook(request, env, cfg) {
   if (cmd === '/help' || cmd === '/start') {
     await sendTelegram(
       cfg,
-      `🤖 <b>คำสั่งที่ใช้ได้</b>\n/status — ดูสถานะตอนนี้\n/ack — แจ้งว่ารับเรื่องแล้ว (หยุดเตือนซ้ำ ${cfg.ackSuppressMin} นาที)\n/mute 60 — ปิดเสียงเตือนชั่วคราว (นาที)`,
+      `🤖 <b>คำสั่งที่ใช้ได้</b>\n/status — ดูสถานะตอนนี้ + พีคของเดือน\n/ack — แจ้งว่ารับเรื่องแล้ว (หยุดเตือนซ้ำ ${cfg.ackSuppressMin} นาที)\n/restore — เปิดอุปกรณ์ที่ระบบสั่งปิดกลับทั้งหมด\n/mute 60 — ปิดเสียงเตือนชั่วคราว (นาที)`,
       { silent: true },
     );
     return json({ ok: true });
@@ -214,7 +334,8 @@ async function handleTelegramWebhook(request, env, cfg) {
 
 async function readState(env) {
   const raw = await env.SOLAR_KV.get(STATE_KEY, 'json');
-  return raw ? { ...emptyState(), ...raw } : emptyState();
+  const base = { ...emptyState(), demand: emptyDemand(), shed: emptyShedState() };
+  return raw ? { ...base, ...raw } : base;
 }
 
 async function writeState(env, state) {
@@ -227,6 +348,10 @@ async function publicState(env, cfg) {
   const last = state.samples?.[state.samples.length - 1] || null;
   const stale = !last || minutesBetween(Date.now(), last.t) > STALE_MINUTES;
   const coveragePct = last && last.load > 0 ? Math.round(((last.load - Math.max(0, last.grid)) / last.load) * 100) : null;
+  const demand = state.demand || emptyDemand();
+  const headroom = monthHeadroom(demand, cfg);
+  // คิดหน้าต่างใหม่ ณ เวลาที่เรียก เพื่อให้ตัวเลข "เหลืออีกกี่นาที" ตรงกับความจริง
+  const win = last && !stale ? windowView(demand, Date.now(), last.grid, cfg) : state.window || null;
 
   return {
     level: stale ? 'unknown' : state.level,
@@ -237,8 +362,34 @@ async function publicState(env, cfg) {
     loadKw: last ? last.load : null,
     coveragePct,
     dayPvKwh: state.dayPvKwh ?? null,
-    demand15: state.demand15 ?? null,
     peakToday: state.peakToday || null,
+
+    // ---- ตัวเลขชุดที่สำคัญที่สุด: เพดานการไฟฟ้า ----
+    demand: win
+      ? {
+          elapsedMin: win.elapsedMin,
+          remainMin: win.remainMin,
+          avgSoFarKw: r(win.avgSoFarKw),
+          projectedKw: r(win.projectedKw),
+          allowedRestKw: r(win.allowedRestKw),
+          blown: win.blown,
+        }
+      : null,
+    month: {
+      peakKw: r(headroom.peakKw),
+      peakAt: headroom.peakAt,
+      limitKw: headroom.limitKw,
+      headroomKw: r(headroom.headroomKw),
+      usedPct: headroom.usedPct,
+      breached: headroom.breached,
+      monthKey: headroom.monthKey,
+    },
+    todayPeakKw: r(demand.todayPeakKw || 0),
+    autoshed: {
+      mode: cfg.autoshedMode,
+      offZones: (cfg.zones || []).filter((z) => state.shed?.zones?.[z.id]?.off).map((z) => ({ id: z.id, name: z.name, kw: z.kw })),
+    },
+    targets: { warnKw: cfg.warnKw, critKw: cfg.critKw, actionKw: cfg.demandActionKw, targetKw: cfg.demandTargetKw },
     cause: state.cause || null,
     actions: state.level === 'green' ? [] : state.actions || [],
     ackBy: state.ackBy || null,
@@ -251,6 +402,13 @@ async function publicState(env, cfg) {
 }
 
 const r = (n) => (n === null || n === undefined ? null : Math.round(n * 10) / 10);
+
+/** ทุกโซนเปิด — ใช้เป็นค่า fail-safe เวลาระบบไม่มีข้อมูลสด */
+function allOn(cfg) {
+  const out = {};
+  for (const z of cfg.zones || []) out[z.id] = { name: z.name, kw: z.kw, power: 'on', since: 0, protected: !!z.protected };
+  return out;
+}
 
 function escapeTg(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

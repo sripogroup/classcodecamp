@@ -8,7 +8,7 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "logs": "wrangler tail",
-    "test": "node test/analyze.test.js"
+    "test": "node test/analyze.test.js && node test/demand.test.js && node test/messages.test.js"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"

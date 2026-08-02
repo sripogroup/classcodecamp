@@ -47,7 +47,9 @@ function actionBlock(actions) {
 const ackFooter = '\n\n<i>ทำแล้วพิมพ์ /ack ในกลุ่มนี้ ระบบจะหยุดเตือนซ้ำ 1 ชั่วโมง</i>';
 
 export function buildMessage(event, cfg, now = Date.now()) {
-  const { sample, cause, actions, demand15 } = event;
+  const sample = event.sample || { pv: 0, grid: 0, load: 0 };
+  const cause = event.cause || { text: '' };
+  const actions = event.actions || []; // รายการที่ให้ "คน" ไปปิด (คนละอันกับ event.changes ที่ระบบสั่งเอง)
   const time = hhmm(now);
   const site = esc(cfg.siteName);
 
@@ -118,27 +120,108 @@ export function buildMessage(event, cfg, now = Date.now()) {
       };
     }
 
-    case 'demand': {
+    case 'demand_risk': {
+      const w = event.window;
+      const h = event.headroom;
+      const head = w.hardBlown
+        ? `🆘 <b>หน้าต่าง 15 นาทีนี้จะเกิน ${cfg.demandLimitKw} kW แล้ว — ปิดทุกอย่างที่ปิดได้เดี๋ยวนี้</b>`
+        : `🆘 <b>ใกล้ชนเพดาน ${cfg.demandLimitKw} kW — ต้องกดลงภายใน ${w.remainMin} นาที</b>`;
       const body = [
-        `📈 <b>ระวังค่าความต้องการพลังไฟฟ้า (Demand)</b>`,
+        head,
         `${site} • ${time} น.`,
         '',
-        `ค่าเฉลี่ย 15 นาที <b>${kw(demand15)}</b> (เพดานที่ตั้งไว้ ${kw(cfg.peakDemandTargetKw)})`,
-        statBlock(sample, cfg),
-        cfg.demandChargeBahtPerKw > 0
-          ? `💸 ทุก 1 kW ที่เกิน จะถูกคิดเพิ่ม ~${baht(cfg.demandChargeBahtPerKw)} ทั้งเดือน`
-          : '',
+        `⏱ หน้าต่าง 15 นาทีนี้ผ่านไป ${w.elapsedMin} นาที เหลืออีก <b>${w.remainMin} นาที</b>`,
+        `📊 ตอนนี้เฉลี่ยได้ ${kw(w.avgSoFarKw)} — ถ้าใช้ต่อแบบนี้จะจบที่ <b>${kw(w.projectedKw)}</b>`,
+        w.remainMin > 0
+          ? `🎯 เวลาที่เหลือใช้ได้เฉลี่ยไม่เกิน <b>${kw(Math.max(0, w.allowedRestKw))}</b> เท่านั้น`
+          : `⚠️ หน้าต่างนี้กำลังจะปิด`,
         '',
-        'ยอดสูงสุดของเดือนคิดเงินทั้งเดือน — กดลงตอนนี้ช่วยได้ทั้งบิล',
+        `📅 พีคของเดือนนี้ ${kw(h.peakKw)} / เพดาน ${kw(h.limitKw)} — เหลือระยะ <b>${kw(h.headroomKw)}</b>`,
+        '',
+        `❗ ถ้าหน้าต่างไหนแตะ ${cfg.demandLimitKw} kW แม้ครั้งเดียว จะถูกย้ายไปค่าไฟประเภทที่ 3 นาน 12 เดือน`,
+      ].join('\n');
+      return {
+        priority: 'high',
+        toBoss: true,
+        telegram: body + actionBlock(actions) + ackFooter,
+        emailSubject: `🆘 ${cfg.siteName}: ใกล้ชนเพดาน ${cfg.demandLimitKw} kW (คาดจบที่ ${kw(w.projectedKw)})`,
+        emailHtml: htmlWrap(body + actionBlock(actions), '#dc2626'),
+      };
+    }
+
+    case 'demand_newpeak': {
+      const h = event.headroom;
+      const w = event.closedWindow;
+      const body = [
+        `📈 <b>ทำสถิติพีคใหม่ของเดือนนี้ ${kw(w.avgKw)}</b>`,
+        `${site} • หน้าต่างเวลา ${hhmm(w.start)} น.`,
+        '',
+        `📅 พีคเดือนนี้ตอนนี้อยู่ที่ <b>${kw(h.peakKw)}</b> จากเพดาน ${kw(h.limitKw)}`,
+        `📏 เหลือระยะปลอดภัยอีก <b>${kw(h.headroomKw)}</b> (ใช้ไปแล้ว ${h.usedPct}% ของเพดาน)`,
+        '',
+        `ตัวเลขนี้ค้างไปทั้งเดือน กดลงทีหลังไม่ได้ — เดือนหน้าถึงจะเริ่มนับใหม่`,
+      ].join('\n');
+      return {
+        priority: h.headroomKw <= 3 ? 'high' : 'normal',
+        telegram: body,
+        emailSubject: `📈 ${cfg.siteName}: พีคใหม่ของเดือน ${kw(w.avgKw)} (เหลือระยะ ${kw(h.headroomKw)})`,
+        emailHtml: htmlWrap(body, '#d97706'),
+      };
+    }
+
+    case 'demand_breached': {
+      const h = event.headroom;
+      const body = [
+        `🛑 <b>เดือนนี้เกินเพดาน ${cfg.demandLimitKw} kW ไปแล้ว</b>`,
+        `${site} • ${time} น.`,
+        '',
+        `พีคของเดือน ${esc(h.monthKey)} อยู่ที่ <b>${kw(h.peakKw)}</b>`,
+        '',
+        `ผลที่ตามมา: จะถูกจัดเข้าค่าไฟประเภทที่ 3 (กิจการขนาดกลาง)`,
+        `และต้องคุมให้ต่ำกว่า ${kw(cfg.demandLimitKw)} <b>ติดต่อกัน 12 เดือน</b> ถึงจะกลับมาประเภทที่ 2 ได้`,
+        cfg.tierPenaltyPerMonth > 0 ? `💸 ส่วนต่างที่ประเมินไว้ ≈ ${baht(cfg.tierPenaltyPerMonth)}/เดือน` : '',
+        '',
+        `จากนี้ไป <b>ทุกเดือนต้องไม่เกิน</b> ไม่ใช่แค่เดือนนี้ — เริ่มนับหนึ่งใหม่ตั้งแต่เดือนหน้า`,
+        `แนะนำให้ทบทวนว่าหน้าต่างที่ทำพีคเกิดจากอะไร แล้วกันไม่ให้ซ้ำ`,
       ]
         .filter(Boolean)
         .join('\n');
       return {
         priority: 'high',
-        telegram: body + actionBlock(actions),
-        emailSubject: `📈 ${cfg.siteName}: Demand 15 นาทีแตะ ${kw(demand15)}`,
-        emailHtml: htmlWrap(body + actionBlock(actions), '#7c3aed'),
+        toBoss: true,
+        telegram: body,
+        emailSubject: `🛑 ${cfg.siteName}: เดือนนี้พีคเกิน ${cfg.demandLimitKw} kW (${kw(h.peakKw)})`,
+        emailHtml: htmlWrap(body, '#991b1b'),
       };
+    }
+
+    case 'shed': {
+      const mode = event.dryRun ? '(ซ้อม ไม่ได้สั่งจริง) ' : '';
+      const lines = event.changes.map((a) => `${a.to === 'off' ? '⛔' : '✅'} ${esc(a.name)} → <b>${a.to === 'off' ? 'ปิด' : 'เปิด'}</b> (${a.to === 'off' ? '−' : '+'}${round1(a.kw)} kW)`);
+      const body = [
+        `🤖 <b>${mode}ระบบสั่งจัดการโหลดอัตโนมัติ</b>`,
+        `${site} • ${time} น.`,
+        '',
+        lines.join('\n'),
+        '',
+        `เหตุผล: คาดว่าหน้าต่าง 15 นาทีนี้จะจบที่ ${kw(event.window.projectedKw)} (เป้า ${kw(cfg.demandTargetKw)})`,
+        `📅 พีคเดือนนี้ ${kw(event.headroom.peakKw)} / เพดาน ${kw(event.headroom.limitKw)}`,
+        '',
+        `<i>ระบบจะเปิดกลับให้เองเมื่อไฟลงมาต่ำกว่า ${kw(cfg.demandRestoreKw)} หรือครบ ${cfg.autoshedMaxOffMin} นาที</i>`,
+        `<i>ถ้าต้องการเปิดกลับทันที พิมพ์ /restore</i>`,
+      ].join('\n');
+      return {
+        priority: 'high',
+        telegram: body,
+        emailSubject: `🤖 ${cfg.siteName}: ระบบตัดโหลดอัตโนมัติ ${event.changes.filter((a) => a.to === 'off').length} โซน`,
+        emailHtml: htmlWrap(body, '#7c3aed'),
+      };
+    }
+
+    case 'restore': {
+      const lines = event.changes.map((a) => `✅ ${esc(a.name)} → <b>เปิดกลับแล้ว</b> (+${round1(a.kw)} kW)`);
+      const body = [`🟢 <b>เปิดอุปกรณ์กลับแล้ว</b>`, `${site} • ${time} น.`, '', lines.join('\n')].join('\n');
+      return { priority: 'low', telegram: body, emailSubject: null, emailHtml: null };
     }
 
     case 'night': {
@@ -183,7 +266,7 @@ export function buildMessage(event, cfg, now = Date.now()) {
 }
 
 /** สรุปประจำวัน ส่งตอนเย็น */
-export function buildDailySummary(state, cfg, now = Date.now()) {
+export function buildDailySummary(state, cfg, now = Date.now(), headroom = null) {
   const s = state.samples || [];
   const day = s.filter((x) => x.t >= now - 20 * 60 * 60 * 1000);
   if (!day.length) return null;
@@ -208,6 +291,17 @@ export function buildDailySummary(state, cfg, now = Date.now()) {
     `💚 ประหยัดได้วันนี้ ≈ <b>${baht(saved)}</b>`,
     '',
     `📈 ดึงไฟหลวงสูงสุด ${kw(peak.kw)} เวลา ${peak.at ? hhmm(peak.at) : '-'} น.`,
+    ...(headroom
+      ? [
+          '',
+          `<b>⚠️ เพดานการไฟฟ้า (สำคัญที่สุด)</b>`,
+          `พีค 15 นาทีของวันนี้ ${kw(state.demand?.todayPeakKw || 0)}`,
+          `พีคสะสมของเดือนนี้ <b>${kw(headroom.peakKw)}</b> / เพดาน ${kw(headroom.limitKw)}`,
+          headroom.breached
+            ? `🛑 เดือนนี้เกินเพดานไปแล้ว — เริ่มนับใหม่เดือนหน้า`
+            : `📏 เหลือระยะปลอดภัยอีก <b>${kw(headroom.headroomKw)}</b> (ใช้ไป ${headroom.usedPct}% ของเพดาน)`,
+        ]
+      : []),
   ].join('\n');
 
   return {

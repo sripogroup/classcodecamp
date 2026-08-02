@@ -42,6 +42,22 @@ export function dashboardHtml(cfg, token) {
   .unit{font-size:17px;color:#94a3b8;font-weight:500;margin-left:4px}
   .bar{height:12px;background:#1e293b;border-radius:99px;overflow:hidden;margin-top:14px}
   .bar span{display:block;height:100%;background:linear-gradient(90deg,#f59e0b,#22c55e);transition:width .5s}
+  .bar.big{height:20px}
+  .bar.big span{background:linear-gradient(90deg,#22c55e,#84cc16,#f59e0b,#ef4444);transition:width .5s}
+  .ceiling{margin-top:20px;border-color:#334155}
+  .ceiling.warn{border-color:#f59e0b;box-shadow:0 0 0 1px #f59e0b55}
+  .ceiling.danger{border-color:#ef4444;box-shadow:0 0 0 1px #ef444455}
+  .ceiling-top{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;flex-wrap:wrap}
+  .ceiling-val{font-size:44px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.1}
+  .ceiling-val .of{font-size:20px;color:#64748b;font-weight:600;margin-left:10px}
+  .headroom{text-align:right}
+  .headroom .ceiling-val{color:#22c55e}
+  .headroom.low .ceiling-val{color:#f59e0b}
+  .headroom.none .ceiling-val{color:#ef4444}
+  #winCard{margin-top:16px}
+  .winrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px;margin-top:12px}
+  .wv{font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:4px}
+  .wv.alarm{color:#ef4444}
   .actions{margin-top:20px;background:#111c33;border:1px solid #1e293b;border-radius:16px;padding:20px}
   .actions h2{font-size:16px;color:#f8fafc;margin-bottom:14px}
   .actions ol{padding-left:22px;line-height:2;color:#cbd5e1;font-size:17px}
@@ -69,6 +85,31 @@ export function dashboardHtml(cfg, token) {
     </div>
   </div>
 
+  <div class="card ceiling" id="ceilingCard">
+    <div class="ceiling-top">
+      <div>
+        <div class="label">เพดานการไฟฟ้าเดือนนี้ (พีคเฉลี่ย 15 นาทีสูงสุด)</div>
+        <div class="ceiling-val"><span id="mpeak">–</span><span class="unit">kW</span><span class="of">/ <span id="mlimit">30</span> kW</span></div>
+      </div>
+      <div class="headroom">
+        <div class="label">เหลือระยะปลอดภัย</div>
+        <div class="ceiling-val" id="mhead">–<span class="unit">kW</span></div>
+      </div>
+    </div>
+    <div class="bar big"><span id="mbar" style="width:0%"></span></div>
+    <div class="label" style="margin-top:10px" id="mnote">เกิน 30 kW แม้ครั้งเดียว = ค่าไฟประเภทที่ 3 นาน 12 เดือน</div>
+  </div>
+
+  <div class="card" id="winCard">
+    <div class="label">หน้าต่าง 15 นาทีปัจจุบัน</div>
+    <div class="winrow">
+      <div><div class="label">ผ่านไป / เหลือ</div><div class="wv" id="wtime">– / –</div></div>
+      <div><div class="label">เฉลี่ยไปแล้ว</div><div class="wv" id="wavg">–</div></div>
+      <div><div class="label">คาดว่าจะจบที่</div><div class="wv" id="wproj">–</div></div>
+      <div><div class="label">เวลาที่เหลือใช้ได้ไม่เกิน</div><div class="wv" id="wallow">–</div></div>
+    </div>
+  </div>
+
   <div class="grid">
     <div class="card">
       <div class="label">ดึงไฟจากการไฟฟ้า</div>
@@ -90,6 +131,12 @@ export function dashboardHtml(cfg, token) {
       <div class="value" id="cov">–<span class="unit">%</span></div>
       <div class="bar"><span id="covbar" style="width:0%"></span></div>
     </div>
+  </div>
+
+  <div class="card" id="shedCard" style="display:none;margin-top:16px;border-color:#7c3aed">
+    <div class="label">🤖 ระบบสั่งปิดอัตโนมัติอยู่ตอนนี้</div>
+    <div id="shedList" style="font-size:18px;line-height:1.9;margin-top:8px"></div>
+    <div class="label" style="margin-top:10px">พิมพ์ /restore ในกลุ่ม Telegram ถ้าต้องการเปิดกลับทันที</div>
   </div>
 
   <div class="actions" id="actionsCard" style="display:none">
@@ -190,6 +237,37 @@ function render(st, samples){
   document.getElementById('cov').innerHTML  = fmt(cov,0) + '<span class="unit">%</span>';
   document.getElementById('covbar').style.width = Math.max(0,Math.min(100,cov)) + '%';
   document.getElementById('thresholds').textContent = 'เกณฑ์: เหลือง ' + st.warnKw + ' / แดง ' + st.critKw + ' kW';
+
+  /* ---- เพดานการไฟฟ้าของเดือน: ตัวเลขที่สำคัญที่สุดบนหน้านี้ ---- */
+  const m = st.month;
+  if (m) {
+    document.getElementById('mpeak').textContent = fmt(m.peakKw);
+    document.getElementById('mlimit').textContent = m.limitKw;
+    document.getElementById('mbar').style.width = Math.min(100, m.usedPct) + '%';
+    const hd = document.querySelector('.headroom');
+    document.getElementById('mhead').innerHTML = (m.breached ? '0' : fmt(m.headroomKw)) + '<span class="unit">kW</span>';
+    hd.className = 'headroom' + (m.breached ? ' none' : m.headroomKw <= 4 ? ' low' : '');
+    const cc = document.getElementById('ceilingCard');
+    cc.className = 'card ceiling' + (m.breached || m.headroomKw <= 2 ? ' danger' : m.headroomKw <= 5 ? ' warn' : '');
+    document.getElementById('mnote').textContent = m.breached
+      ? '🛑 เดือนนี้เกินเพดานไปแล้ว — เริ่มนับใหม่เดือนหน้า'
+      : 'ใช้ไปแล้ว ' + m.usedPct + '% ของเพดาน • เกิน ' + m.limitKw + ' kW แม้ครั้งเดียว = ค่าไฟประเภทที่ 3 นาน 12 เดือน';
+  }
+
+  /* ---- หน้าต่าง 15 นาทีปัจจุบัน ---- */
+  const d = st.demand;
+  const wc = document.getElementById('winCard');
+  if (d) {
+    wc.style.display = 'block';
+    document.getElementById('wtime').textContent = d.elapsedMin + ' / ' + d.remainMin + ' นาที';
+    document.getElementById('wavg').textContent = fmt(d.avgSoFarKw) + ' kW';
+    const proj = document.getElementById('wproj');
+    proj.textContent = fmt(d.projectedKw) + ' kW';
+    proj.className = 'wv' + (st.targets && d.projectedKw >= st.targets.actionKw ? ' alarm' : '');
+    const allow = document.getElementById('wallow');
+    allow.textContent = d.blown ? 'เกินแล้ว' : fmt(Math.max(0, d.allowedRestKw)) + ' kW';
+    allow.className = 'wv' + (d.blown ? ' alarm' : '');
+  } else wc.style.display = 'none';
   document.getElementById('daypv').textContent = st.dayPvKwh ? 'วันนี้ผลิตแล้ว ' + fmt(st.dayPvKwh,0) + ' kWh' : '';
   document.getElementById('peak').textContent = st.peakToday ? 'ดึงไฟหลวงสูงสุดวันนี้ ' + fmt(st.peakToday.kw) + ' kW' : '';
   document.getElementById('updated').textContent = st.updatedAt
@@ -202,6 +280,15 @@ function render(st, samples){
       '<li>'+escapeHtml(a.name)+' <b>(−'+a.kw+' kW)</b>'+(a.owner?' — '+escapeHtml(a.owner):'')+'</li>').join('');
     card.style.display='block';
   } else card.style.display='none';
+
+  /* ---- โซนที่ระบบสั่งปิดอยู่ ---- */
+  const sc = document.getElementById('shedCard');
+  const offZones = (st.autoshed && st.autoshed.offZones) || [];
+  if(offZones.length){
+    document.getElementById('shedList').innerHTML = offZones.map(z =>
+      '⛔ ' + escapeHtml(z.name) + ' <b>(−' + z.kw + ' kW)</b>').join('<br>');
+    sc.style.display='block';
+  } else sc.style.display='none';
 
   if(level==='red') startSiren(); else stopSiren();
   if(level!=='red' && lastLevel==='red') beep(660,0.25);

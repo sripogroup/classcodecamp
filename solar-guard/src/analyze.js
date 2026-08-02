@@ -27,6 +27,9 @@ export function emptyState() {
     lastNightAlertAt: 0,
     lastInverterAlertAt: 0,
     lastSilenceAlertAt: 0,
+    lastDemandAlertAt: 0,
+    lastPeakAlertKw: 0,
+    breachNotifiedMonth: '',
     peakToday: { kw: 0, at: 0 },
     samples: [],
     lastError: null,
@@ -174,11 +177,6 @@ export function evaluate(prevState, sample, cfg, now = Date.now()) {
       state.lastBossAt = now;
     }
 
-    // เกินเพดาน demand ที่ตั้งไว้ (ค่าความต้องการพลังไฟฟ้าคิดเงินแพง)
-    if (cfg.peakDemandTargetKw > 0 && d15 >= cfg.peakDemandTargetKw && minutesBetween(now, state.lastSentAt || 0) >= 15) {
-      events.push({ type: 'demand', ...ctx });
-    }
-
     // กลางคืน: มีอุปกรณ์เปิดค้าง
     if (
       cfg.nightWatch &&
@@ -203,7 +201,7 @@ export function evaluate(prevState, sample, cfg, now = Date.now()) {
     }
   }
 
-  if (events.some((e) => ['alert', 'repeat', 'recover', 'demand'].includes(e.type))) {
+  if (events.some((e) => ['alert', 'repeat', 'recover'].includes(e.type))) {
     state.lastSentAt = now;
     state.lastSentLevel = state.level;
   }
@@ -218,4 +216,46 @@ export function evaluate(prevState, sample, cfg, now = Date.now()) {
   state.lastError = null;
 
   return { state, events, cause, demand15: d15, actions };
+}
+
+/**
+ * สายที่สอง: ป้องกันไม่ให้ค่าเฉลี่ย 15 นาที แตะเส้นตายของการไฟฟ้า
+ *
+ * ต่างจากสายแรกตรงที่ **ไม่มีการหน่วงเวลา** — เพราะพลาดหน้าต่างเดียวคือจ่ายแพงทั้งปี
+ * จะรอยืนยัน 10 นาทีเหมือนการเตือนเรื่องค่าไฟไม่ได้ หน้าต่างมันยาวแค่ 15 นาที
+ *
+ * @param window   ผลจาก demand.windowView()
+ * @param headroom ผลจาก demand.monthHeadroom()
+ * @param closed   หน้าต่างที่เพิ่งปิดในรอบนี้
+ */
+export function evaluateDemand(prevState, { window, headroom, closed, sample }, cfg, now = Date.now()) {
+  const state = { ...prevState };
+  const events = [];
+  const muted = now < (state.mutedUntil || 0);
+
+  // ---- 1) เดือนนี้โดนไปแล้ว: แจ้งครั้งเดียว ไม่ต้องตื่นตระหนกซ้ำ ----
+  if (headroom.breached && state.breachNotifiedMonth !== headroom.monthKey) {
+    state.breachNotifiedMonth = headroom.monthKey;
+    events.push({ type: 'demand_breached', window, headroom, sample });
+    return { state, events }; // เดือนนี้เสียหายไปแล้ว ตัดโหลดต่อไม่ช่วยเรื่องประเภทผู้ใช้ไฟ
+  }
+
+  if (muted || headroom.breached) return { state, events };
+
+  // ---- 2) หน้าต่างที่เพิ่งปิด ทำสถิติพีคใหม่ของเดือน ----
+  for (const w of closed) {
+    if (w.avgKw >= cfg.demandActionKw && w.avgKw > (state.lastPeakAlertKw || 0) && w.avgKw >= headroom.peakKw) {
+      state.lastPeakAlertKw = w.avgKw;
+      events.push({ type: 'demand_newpeak', window, headroom, closedWindow: w, sample });
+    }
+  }
+
+  // ---- 3) หน้าต่างปัจจุบันกำลังจะเกิน — ต้องรีบตอนนี้ ----
+  const atRisk = window.projectedKw >= cfg.demandActionKw || window.hardBlown;
+  if (atRisk && minutesBetween(now, state.lastDemandAlertAt || 0) >= 10) {
+    state.lastDemandAlertAt = now;
+    events.push({ type: 'demand_risk', window, headroom, sample });
+  }
+
+  return { state, events };
 }
