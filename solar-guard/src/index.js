@@ -10,7 +10,7 @@
 import { loadConfig } from './config.js';
 import { FusionSolar } from './fusionsolar.js';
 import { emptyState, evaluate, evaluateDemand, pickActions } from './analyze.js';
-import { emptyDemand, feedDemand, monthHeadroom, windowView } from './demand.js';
+import { emptyDemand, feedDemand, monthHeadroom, monthKey, windowView } from './demand.js';
 import { decideShed, desiredMap, emptyShedState } from './autoshed.js';
 import { checkSchedule, emptyScheduleState } from './schedule.js';
 import { applyZone } from './drivers/index.js';
@@ -325,6 +325,19 @@ async function poll(env, cfg, injected = null) {
     bat: round1(reading.batteryKw),
   };
 
+  // ---- 0) สถิติสูงสุดของเดือน แยกทีละสาย ----
+  //
+  // demand เก็บเฉพาะไฟหลวงแบบเฉลี่ย 15 นาที เพราะนั่นคือตัวที่การไฟฟ้าคิดเงิน
+  // แต่เวลาดูย้อนหลังเพื่อหาสาเหตุ ต้องรู้ด้วยว่าเดือนนั้นโหลดขึ้นไปสูงสุดเท่าไหร่
+  // และโซลาร์ช่วยได้สูงสุดเท่าไหร่ ค่าพวกนี้เก็บเป็นค่า ณ ขณะนั้น ไม่ใช่เฉลี่ย
+  const mk = monthKey(now);
+  const mp = prev.monthPeaks && prev.monthPeaks.key === mk
+    ? { ...prev.monthPeaks }
+    : { key: mk, gridKw: 0, gridAt: 0, loadKw: 0, loadAt: 0, pvKw: 0, pvAt: 0 };
+  if (sample.grid > mp.gridKw) { mp.gridKw = sample.grid; mp.gridAt = now; }
+  if (sample.load > mp.loadKw) { mp.loadKw = sample.load; mp.loadAt = now; }
+  if (sample.pv > mp.pvKw) { mp.pvKw = sample.pv; mp.pvAt = now; }
+
   // ---- 1) คิดค่า demand ตามหน้าต่าง 15 นาทีของการไฟฟ้า ----
   const demandRes = feedDemand(prev.demand || emptyDemand(), now, sample.grid, cfg);
   const headroom = monthHeadroom(demandRes.demand, cfg, demandRes.window.projectedKw);
@@ -332,6 +345,7 @@ async function poll(env, cfg, injected = null) {
   // ---- 2) สายที่หนึ่ง: เตือนคนเรื่องค่าไฟ (มีการหน่วงเวลากันเตือนหลอก) ----
   const { state, events, cause, demand15, actions } = evaluate(prev, sample, cfg, now);
   state.demand = demandRes.demand;
+  state.monthPeaks = mp;
   state.dayPvKwh = reading.dayPvKwh;
   state.cause = cause.text;
   state.actions = actions;
@@ -561,13 +575,21 @@ async function handleTelegramWebhook(request, env, cfg) {
     const icon = { green: '🟢 ปกติ', yellow: '🟡 เฝ้าระวัง', red: '🔴 ต้องลดโหลด' }[state.level] || '⚪ ไม่มีข้อมูล';
     const w = state.window;
     const h = monthHeadroom(state.demand || emptyDemand(), cfg, w?.projectedKw || 0);
+    const mp = state.monthPeaks && state.monthPeaks.key === h.monthKey ? state.monthPeaks : null;
     const offZones = (cfg.zones || []).filter((z) => state.shed?.zones?.[z.id]?.off);
     const body = s
       ? [
           icon,
           `ดึงไฟหลวง <b>${round1(s.grid)} kW</b> | โซลาร์ ${round1(s.pv)} kW | โหลด ${round1(s.load)} kW`,
           w ? `⏱ หน้าต่างนี้เหลือ ${w.remainMin} นาที คาดจบที่ <b>${round1(w.projectedKw)} kW</b>` : '',
-          `📅 พีคเดือนนี้ <b>${round1(h.livePeakKw)} kW</b> / เพดาน ${h.limitKw} kW — เหลือระยะ ${round1(h.headroomKw)} kW`,
+          // เลี่ยงคำว่า "พีค" เพราะในบิล TOU คำว่า Peak แปลว่าช่วงเวลา 09:00-22:00
+          // ไม่ได้แปลว่าสูงสุด เขียนเต็มไปเลยจะได้ไม่มีใครอ่านผิด
+          `📅 <b>สูงสุดของเดือน ${escapeTg(h.monthKey || '')}</b>`,
+          `   ไฟหลวง <b>${round1(h.livePeakKw)} kW</b> (เฉลี่ย 15 นาที ตัวที่การไฟฟ้าคิดเงิน)`,
+          `   เพดานที่ตั้งไว้ ${h.limitKw} kW — เหลืออีก ${round1(h.headroomKw)} kW`,
+          mp
+            ? `   โหลดรวมสูงสุด ${round1(mp.loadKw)} kW · โซลาร์สูงสุด ${round1(mp.pvKw)} kW · ไฟหลวงสูงสุด ณ ขณะนั้น ${round1(mp.gridKw)} kW`
+            : '',
           offZones.length ? `⛔ ถูกสั่งปิดอยู่: ${offZones.map((z) => escapeTg(z.name)).join(', ')}` : '',
           `ข้อมูลเมื่อ ${hhmm(s.t)} น.`,
         ]
