@@ -24,6 +24,20 @@ import { hhmm, minutesBetween, round1, thDateKey } from './util.js';
 const STATE_KEY = 'state';
 const STALE_MINUTES = 20; // ไม่ได้ข้อมูลนานเกินนี้ = ถือว่าระบบเงียบ
 
+/** ชนิดอุปกรณ์ของ FusionSolar เท่าที่เกี่ยวกับระบบนี้ ใช้ตอน /api/probe-devices */
+const DEV_TYPE_NAMES = {
+  1: 'อินเวอร์เตอร์ (String inverter)',
+  2: 'SmartLogger',
+  10: 'เครื่องวัดสภาพอากาศ (EMI)',
+  17: 'มิเตอร์ (Grid meter)',
+  38: 'อินเวอร์เตอร์บ้าน (Residential inverter)',
+  39: 'แบตเตอรี่',
+  41: 'ระบบกักเก็บพลังงาน (ESS)',
+  46: 'ออปติไมเซอร์',
+  47: 'มิเตอร์อัจฉริยะ (Smart Power Sensor)',
+  62: 'ดองเกิล',
+};
+
 export default {
   async fetch(request, env, ctx) {
     const cfg = loadConfig(env);
@@ -71,6 +85,61 @@ export default {
 
       // เรียกรอบเก็บข้อมูลเองเพื่อทดสอบ (ดูผลเป็น JSON)
       if (path === '/api/poll') return json(await poll(env, cfg));
+
+      // ส่องดูอุปกรณ์ทั้งหมดในระบบ พร้อมค่าดิบทุกฟิลด์ที่ FusionSolar ส่งกลับมา
+      // เรียกครั้งเดียวหลัง deploy จะรู้ทันทีว่ามิเตอร์อยู่ที่ devTypeId ไหน ชื่อฟิลด์อะไร
+      // ไม่ต้องเดา ไม่ต้องไล่แก้ทีละรอบ
+      if (path === '/api/probe-devices') {
+        try {
+          const fs = new FusionSolar(cfg, env.SOLAR_KV);
+          const stationCode = await fs.resolveStationCode();
+          const devices = await fs.getDevices(stationCode);
+
+          const byType = new Map();
+          for (const d of devices) {
+            const t = Number(d.devTypeId);
+            if (!byType.has(t)) byType.set(t, []);
+            byType.get(t).push(d);
+          }
+
+          const out = [];
+          for (const [devTypeId, list] of byType) {
+            let kpi = null;
+            let error = null;
+            try {
+              kpi = await fs.call('getDevRealKpi', {
+                devIds: list.map((d) => String(d.id ?? d.devId)).join(','),
+                devTypeId,
+              });
+            } catch (err) {
+              error = String(err?.message || err);
+            }
+            out.push({
+              devTypeId,
+              คืออะไร: DEV_TYPE_NAMES[devTypeId] || 'ไม่ทราบชนิด',
+              อุปกรณ์: list.map((d) => ({ id: d.id ?? d.devId, name: d.devName, esn: d.esnCode })),
+              ค่าที่อ่านได้: (kpi || []).map((r) => r.dataItemMap),
+              error,
+            });
+          }
+
+          const meterTypes = out.filter((o) => [17, 47].includes(o.devTypeId));
+          return json({
+            ok: true,
+            stationCode,
+            สรุป: {
+              พบอุปกรณ์: out.map((o) => `${o.คืออะไร} (devTypeId=${o.devTypeId}) x${o.อุปกรณ์.length}`),
+              มีมิเตอร์ไหม: meterTypes.length
+                ? `✅ มี — ${meterTypes.map((m) => m.คืออะไร).join(', ')} ใช้ระบบนี้ได้`
+                : '⚠️ ไม่พบอุปกรณ์ชนิดมิเตอร์ในรายการ ดูช่อง "ค่าที่อ่านได้" ว่ามีฟิลด์ไหนบอกกำลังไฟฝั่งการไฟฟ้าไหม',
+              ขั้นตอนถัดไป: 'ดู active_power ของมิเตอร์ เทียบกับตัวเลข Current power ในหน้า Overview ว่าตรงกันและเครื่องหมายถูกทางไหม',
+            },
+            devices: out,
+          });
+        } catch (err) {
+          return json({ ok: false, error: String(err?.message || err) }, 502);
+        }
+      }
 
       // ส่องดูว่า Kiosk View ให้ข้อมูลอะไรมาบ้างจริง ๆ
       // มีไว้ตอบคำถามเดียว: "มีข้อมูลฝั่งซื้อไฟ/โหลดรวมด้วยไหม"
