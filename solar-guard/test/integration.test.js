@@ -247,6 +247,107 @@ await test('หน้าจอโหลดขึ้นและมีตัว�
   assert.match(html, /หน้าต่าง 15 นาทีปัจจุบัน/);
 });
 
+console.log('\nโหมด push (ตัวอ่านในโรงงานส่งค่าเข้ามาเอง)');
+
+const PUSH_ENV = { ...ENV, DATA_SOURCE: 'push', INGEST_TOKEN: 'secret123' };
+const postIngest = (env, body, token = 'secret123') =>
+  worker.fetch(
+    new Request('https://x/api/ingest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Ingest-Token': token },
+      body: JSON.stringify(body),
+    }),
+    env,
+    { waitUntil() {} },
+  );
+
+await test('ส่งค่าเข้ามาได้ และคำนวณต่อได้ครบโดยไม่ต้องแตะคลาวด์ Huawei', async () => {
+  const env = { ...PUSH_ENV, SOLAR_KV: fakeKV() };
+  const sent = [];
+  globalThis.fetch = async (u, i) => {
+    if (String(u).includes('telegram')) {
+      sent.push(JSON.parse(String(i.body)));
+      return new Response('{"ok":true}');
+    }
+    throw new Error(`โหมด push ต้องไม่เรียกออกไปข้างนอก: ${u}`);
+  };
+
+  Date.now = () => START;
+  const r = await (await postIngest(env, { pv: 11.9, grid: 1.9 })).json();
+  Date.now = realNow;
+
+  assert.equal(r.ok, true, r.error || '');
+  assert.equal(r.sample.pv, 11.9);
+  assert.equal(r.sample.grid, 1.9);
+  assert.equal(r.sample.load, 13.8, 'โหลดรวมคำนวณให้เองถ้าไม่ได้ส่งมา');
+  assert.ok(r.window, 'ต้องคิดหน้าต่าง 15 นาทีให้ด้วย');
+});
+
+await test('ไม่มีรหัสหรือรหัสผิด -> ปฏิเสธ', async () => {
+  const env = { ...PUSH_ENV, SOLAR_KV: fakeKV() };
+  installFakeFetch({});
+  assert.equal((await postIngest(env, { pv: 1, grid: 1 }, 'wrong-token')).status, 401);
+  assert.equal((await postIngest(env, { pv: 1, grid: 1 }, '')).status, 401);
+});
+
+await test('ส่งรหัสมาทาง query string ก็ได้ (สำหรับอุปกรณ์ที่ตั้ง header ไม่ได้)', async () => {
+  const env = { ...PUSH_ENV, SOLAR_KV: fakeKV() };
+  installFakeFetch({});
+  Date.now = () => START;
+  const res = await worker.fetch(
+    new Request('https://x/api/ingest?token=secret123', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pv: 10, grid: 2 }),
+    }),
+    env,
+    { waitUntil() {} },
+  );
+  Date.now = realNow;
+  assert.equal((await res.json()).ok, true);
+});
+
+await test('ส่งค่าไม่ครบ / ไม่ใช่ตัวเลข -> ปฏิเสธ ไม่ใช่เดาเป็น 0', async () => {
+  const env = { ...PUSH_ENV, SOLAR_KV: fakeKV() };
+  installFakeFetch({});
+  assert.equal((await postIngest(env, { pv: 5 })).status, 400);
+  assert.equal((await postIngest(env, { pv: 'x', grid: 'y' })).status, 400);
+});
+
+await test('โหมด push ก็ต้องเตือนเรื่องเพดานได้เหมือนกัน', async () => {
+  const env = { ...PUSH_ENV, SOLAR_KV: fakeKV() };
+  const sent = [];
+  globalThis.fetch = async (u, i) => {
+    sent.push(JSON.parse(String(i.body)));
+    return new Response('{"ok":true}');
+  };
+  Date.now = () => START;
+  await postIngest(env, { pv: 2, grid: 28 });
+  Date.now = realNow;
+  assert.ok(sent.some((s) => /ใกล้ชนเพดาน/.test(s.text)), 'ต้องเตือนเรื่องเพดาน');
+});
+
+await test('ตัวอ่านในโรงงานเงียบไป -> ต้องเตือนว่าเฝ้าให้ไม่ได้แล้ว', async () => {
+  const env = { ...PUSH_ENV, SOLAR_KV: fakeKV() };
+  const sent = [];
+  globalThis.fetch = async (u, i) => {
+    sent.push(JSON.parse(String(i.body)));
+    return new Response('{"ok":true}');
+  };
+
+  Date.now = () => START;
+  await postIngest(env, { pv: 10, grid: 3 });
+  sent.length = 0;
+
+  // ผ่านไป 1 ชั่วโมงโดยไม่มีข้อมูลใหม่ แล้ว cron มาตรวจ
+  Date.now = () => START + 60 * 60000;
+  await worker.scheduled({ cron: '*/5 * * * *' }, env, { waitUntil: (p) => p });
+  await new Promise((r) => setTimeout(r, 20));
+  Date.now = realNow;
+
+  assert.ok(sent.some((s) => /หยุดส่งข้อมูล/.test(s.text)), 'ต้องบอกว่าตัวอ่านเงียบไป');
+});
+
 console.log('\nความทนทานเมื่อของข้างนอกพัง');
 
 await test('FusionSolar ล่ม -> ต้องไม่พัง ไม่เดาค่า และไม่สแปม', async () => {

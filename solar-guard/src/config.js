@@ -24,7 +24,11 @@ export function loadConfig(env = {}) {
     // แหล่งข้อมูลทางเลือก: Kiosk View (ไม่ต้องใช้บัญชี Northbound API)
     // kioskKey = ค่า kk= ที่อยู่ท้าย URL ของ Kiosk
     // ใช้ได้ต่อเมื่อ Kiosk มีข้อมูลฝั่งใช้ไฟด้วย — เช็คด้วย /api/probe-kiosk ก่อน
-    dataSource: ['api', 'kiosk'].includes(str(env.DATA_SOURCE, 'api')) ? str(env.DATA_SOURCE, 'api') : 'api',
+    // api   = ดึงจาก Northbound API (ต้องมีบัญชีจากดีลเลอร์)
+    // kiosk = ดึงจาก Kiosk View (ยืนยันแล้วว่าไม่มีข้อมูลฝั่งใช้ไฟ ใช้ไม่ได้)
+    // push  = ตัวอ่านในโรงงานส่งค่าเข้ามาเอง ทาง POST /api/ingest (ไม่ต้องพึ่งคลาวด์ Huawei เลย)
+    dataSource: ['api', 'kiosk', 'push'].includes(str(env.DATA_SOURCE, 'api')) ? str(env.DATA_SOURCE, 'api') : 'api',
+    ingestToken: str(env.INGEST_TOKEN, ''), // รหัสลับของตัวอ่านในโรงงาน
     kioskKey: str(env.KIOSK_KEY, ''),
     kioskBase: str(env.KIOSK_BASE, ''),
     kioskFieldMap: parseJsonObject(env.KIOSK_FIELD_MAP, {}),

@@ -49,6 +49,39 @@ export default {
         return handleTelegramWebhook(request, env, cfg);
       }
 
+      // ตัวอ่านในโรงงานส่งค่ามาที่นี่ — ไม่ต้องพึ่งคลาวด์ Huawei เลย
+      // ข้อมูลสดกว่ามาก (วินาที แทนที่จะเป็น 5-10 นาที) ซึ่งสำคัญกับหน้าต่าง 15 นาที
+      //   curl -X POST .../api/ingest -H 'X-Ingest-Token: xxx' \
+      //        -d '{"pv":11.9,"grid":1.9}'
+      if (path === '/api/ingest' && request.method === 'POST') {
+        if (!cfg.ingestToken) return json({ ok: false, error: 'ยังไม่ได้ตั้ง INGEST_TOKEN' }, 400);
+        const given = request.headers.get('x-ingest-token') || url.searchParams.get('token') || '';
+        if (given !== cfg.ingestToken) return json({ ok: false, error: 'รหัสไม่ถูกต้อง' }, 401);
+
+        const body = await request.json().catch(() => null);
+        if (!body) return json({ ok: false, error: 'body ต้องเป็น JSON' }, 400);
+
+        const pv = Number(body.pv);
+        const grid = Number(body.grid);
+        if (!Number.isFinite(pv) || !Number.isFinite(grid)) {
+          return json({ ok: false, error: 'ต้องส่ง pv และ grid มาเป็นตัวเลข (หน่วย kW)' }, 400);
+        }
+
+        const load = Number.isFinite(Number(body.load)) ? Number(body.load) : pv + grid;
+        return json(
+          await poll(env, cfg, {
+            source: 'push',
+            t: Number.isFinite(Number(body.t)) ? Number(body.t) : Date.now(),
+            pvKw: pv,
+            gridImportKw: cfg.meterSign * grid,
+            loadKw: load,
+            batteryKw: Number(body.battery) || 0,
+            dayPvKwh: Number.isFinite(Number(body.dayPv)) ? Number(body.dayPv) : null,
+            meterFound: true,
+          }),
+        );
+      }
+
       if (cfg.dashboardToken) {
         const given = url.searchParams.get('k') || request.headers.get('x-token') || '';
         if (given !== cfg.dashboardToken) return new Response('ไม่มีสิทธิ์เข้าถึง', { status: 401 });
@@ -195,24 +228,27 @@ export default {
   async scheduled(event, env, ctx) {
     const cfg = loadConfig(env);
     if (event.cron === '30 10 * * *') ctx.waitUntil(dailySummary(env, cfg));
+    // โหมด push: ตัวอ่านในโรงงานเป็นคนส่งค่าเข้ามาเอง cron มีหน้าที่แค่เฝ้าว่ามันยังส่งอยู่ไหม
+    else if (cfg.dataSource === 'push') ctx.waitUntil(checkPushHealth(env, cfg));
     else ctx.waitUntil(poll(env, cfg));
   },
 };
 
 /* ---------------------------------------------------------------- รอบเก็บข้อมูล */
 
-async function poll(env, cfg) {
-  const now = Date.now();
+async function poll(env, cfg, injected = null) {
+  const now = injected?.t || Date.now();
   const prev = await readState(env);
 
   const useKiosk = cfg.dataSource === 'kiosk';
-  if (useKiosk ? !cfg.kioskKey : !cfg.fusionUser || !cfg.fusionPass) {
+  if (!injected && (useKiosk ? !cfg.kioskKey : !cfg.fusionUser || !cfg.fusionPass)) {
     return { ok: false, error: useKiosk ? 'ยังไม่ได้ตั้ง KIOSK_KEY' : 'ยังไม่ได้ตั้ง FUSION_USER / FUSION_SYSTEM_CODE' };
   }
 
   let reading;
   try {
-    reading = useKiosk ? await readNowFromKiosk(cfg) : await new FusionSolar(cfg, env.SOLAR_KV).readNow();
+    // โหมด push: ตัวอ่านในโรงงานส่งค่ามาให้แล้ว ไม่ต้องไปดึงจากคลาวด์ Huawei
+    reading = injected || (useKiosk ? await readNowFromKiosk(cfg) : await new FusionSolar(cfg, env.SOLAR_KV).readNow());
   } catch (err) {
     const state = { ...prev, lastError: { at: now, message: String(err?.message || err) } };
     // เงียบมานานผิดปกติ -> บอกให้รู้ครั้งเดียว จะได้ไม่เข้าใจผิดว่า "ไม่มีข้อความ = ไม่มีปัญหา"
@@ -357,6 +393,30 @@ async function poll(env, cfg) {
     autoshed: { mode: cfg.autoshedMode, needKw: shedRes.needKw, actions: applied },
     sent,
   };
+}
+
+/**
+ * โหมด push: เช็คว่าตัวอ่านในโรงงานยังส่งข้อมูลอยู่ไหม
+ * "เงียบ" ต้องไม่ถูกตีความว่า "ปกติ" — ถ้าตัวอ่านตายแล้วไม่มีใครรู้ จะเข้าใจผิดว่าปลอดภัยอยู่
+ */
+async function checkPushHealth(env, cfg) {
+  const now = Date.now();
+  const state = await readState(env);
+  const last = state.samples?.[state.samples.length - 1];
+  const quietMin = last ? minutesBetween(now, last.t) : Infinity;
+
+  if (quietMin < STALE_MINUTES) return { ok: true, quietMin: Math.round(quietMin) };
+  if (minutesBetween(now, state.lastSilenceAlertAt || 0) < 180) return { ok: false, quietMin, alerted: false };
+
+  await writeState(env, { ...state, lastSilenceAlertAt: now });
+  await sendTelegram(
+    cfg,
+    `⚠️ <b>ตัวอ่านในโรงงานหยุดส่งข้อมูล</b>\n${escapeTg(cfg.siteName)} • ${hhmm(now)} น.\n` +
+      (last ? `ข้อมูลล่าสุดเมื่อ ${hhmm(last.t)} น. (${Math.round(quietMin)} นาทีที่แล้ว)` : 'ยังไม่เคยได้รับข้อมูลเลย') +
+      `\n\nให้ช่างเช็ค: อุปกรณ์ยังมีไฟไหม / ต่อ WiFi ได้ไหม / สาย RS485 หลุดหรือเปล่า` +
+      `\n\n<i>ช่วงนี้ระบบเฝ้าเรื่องเพดาน ${cfg.demandLimitKw} kW ให้ไม่ได้ ต้องเฝ้าเองไปก่อน</i>`,
+  );
+  return { ok: false, quietMin, alerted: true };
 }
 
 /* ---------------------------------------------------------------- สรุปประจำวัน */
