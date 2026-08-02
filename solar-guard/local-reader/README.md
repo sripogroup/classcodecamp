@@ -46,13 +46,13 @@
 ### 1) หาอินเวอร์เตอร์ในวง LAN (ไม่ต้องติดตั้งอะไร)
 
 ```bash
-python find_inverter.py
+powershell -ExecutionPolicy Bypass -File .\FindInverter.ps1
 ```
 
 สคริปต์จะหาวง LAN ของเครื่องเอง แล้วไล่เช็คทุก IP ว่ามีพอร์ต 502 เปิดไหม
 เจอแล้วจะลองอ่านชื่อรุ่นออกมายืนยันว่าเป็น Huawei จริง ใช้เวลา 10–30 วินาที
 
-ถ้ารู้วง LAN อยู่แล้ว ระบุเองได้: `python find_inverter.py 192.168.1.0/24`
+ถ้ารู้วง LAN อยู่แล้ว ระบุเองได้: `powershell -ExecutionPolicy Bypass -File .\FindInverter.ps1 192.168.1.0/24`
 
 ผลลัพธ์ที่ต้องการ:
 
