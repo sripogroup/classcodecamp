@@ -252,11 +252,11 @@ export default {
         }
       }
 
-      // ส่งข้อความทดสอบเข้ากลุ่ม เอาไว้เช็คว่าตั้ง Telegram ถูกไหม
+      // ส่งข้อความทดสอบเข้าทุกช่องทางที่ตั้งค่าไว้ เอาไว้เช็คว่าตั้งถูกไหม
       if (path === '/api/test-alert') {
-        const tg = await sendChat(cfg, `🧪 <b>ทดสอบระบบแจ้งเตือน</b>\n${cfg.siteName} • ${hhmm()} น.\nถ้าเห็นข้อความนี้ แปลว่าตั้งค่าถูกแล้วครับ`);
+        const chat = await sendChat(cfg, `🧪 <b>ทดสอบระบบแจ้งเตือน</b>\n${cfg.siteName} • ${hhmm()} น.\nถ้าเห็นข้อความนี้ แปลว่าตั้งค่าถูกแล้วครับ`);
         const mail = await sendEmail(cfg, `🧪 ทดสอบระบบแจ้งเตือน ${cfg.siteName}`, '<p>ถ้าเห็นอีเมลนี้ แปลว่าตั้งค่าถูกแล้วครับ</p>');
-        return json({ telegram: tg, email: mail });
+        return json({ chat, email: mail });
       }
 
       // ตั้ง webhook ให้บอทรับคำสั่ง /ack (เรียกครั้งเดียวหลัง deploy)
