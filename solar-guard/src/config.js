@@ -146,6 +146,17 @@ export function loadConfig(env = {}) {
     telegramToken: str(env.TELEGRAM_BOT_TOKEN, ''),
     telegramChatId: str(env.TELEGRAM_CHAT_ID, ''), // กลุ่มพนักงาน
     telegramBossChatId: str(env.TELEGRAM_BOSS_CHAT_ID, ''), // หัวหน้า (ใช้ตอน escalate) ว่างได้
+
+    // ---------- LINE ----------
+    // ที่โรงงานใช้ LINE อยู่แล้วและมีบอทผูกกับพนักงานไว้แล้ว จึงใช้ช่องทางนี้เป็นหลัก
+    // lineTo = userId หรือ groupId ใส่ได้หลายตัวคั่นด้วยจุลภาค
+    // ส่งเข้ากลุ่มประหยัดโควตากว่ามาก เพราะนับเป็น 1 ข้อความไม่ว่าในกลุ่มมีกี่คน
+    lineToken: str(env.LINE_CHANNEL_TOKEN, ''),
+    lineTo: str(env.LINE_TO, ''),
+    lineBossTo: str(env.LINE_BOSS_TO, ''), // หัวหน้า (ใช้ตอน escalate) ว่างได้
+    // ใช้ตรวจลายเซ็นของ webhook ที่ LINE ส่งมา ถ้าไม่ตั้งจะรับทุก request
+    // ที่ยิงเข้ามาโดยไม่พิสูจน์ว่ามาจาก LINE จริง — ควรตั้งเสมอ
+    lineChannelSecret: str(env.LINE_CHANNEL_SECRET, ''),
     telegramWebhookSecret: str(env.TELEGRAM_WEBHOOK_SECRET, ''),
 
     resendApiKey: str(env.RESEND_API_KEY, ''),

@@ -16,7 +16,8 @@ import { checkSchedule, emptyScheduleState } from './schedule.js';
 import { applyZone } from './drivers/index.js';
 import { fetchKiosk, flattenNumbers, guessFields, kioskApiUrl, readNowFromKiosk } from './kiosk.js';
 import { buildDailySummary, buildMessage } from './messages.js';
-import { sendTelegram, setTelegramWebhook } from './notify/telegram.js';
+import { setTelegramWebhook } from './notify/telegram.js';
+import { sendChat } from './notify/chat.js';
 import { sendEmail } from './notify/email.js';
 import { dashboardHtml } from './dashboard.js';
 import { hhmm, minutesBetween, round1, thDateKey } from './util.js';
@@ -82,9 +83,53 @@ export default {
         );
       }
 
+      // LINE ยิง event มาที่นี่
+      //
+      // เหตุผลหลักตอนนี้: หา groupId ของกลุ่มที่เชิญบอทเข้าไป ซึ่งไม่มีทางรู้
+      // จากที่ไหนอีกเลย LINE ไม่มีหน้าจอให้ดู ต้องดักจาก event เท่านั้น
+      // ต่อไปใช้รับคำสั่ง /ack จากในกลุ่มได้ด้วย
+      //
+      // ต้องอยู่เหนือด่าน dashboardToken เพราะ LINE ยิงมาโดยไม่มีโทเคนของเรา
+      if (path === '/line/webhook' && request.method === 'POST') {
+        const raw = await request.text();
+
+        let verified = null;
+        if (cfg.lineChannelSecret) {
+          verified = await verifyLineSignature(cfg.lineChannelSecret, raw, request.headers.get('x-line-signature') || '');
+          if (!verified) return json({ ok: false, error: 'ลายเซ็นไม่ถูกต้อง' }, 401);
+        }
+
+        let parsed = null;
+        try { parsed = JSON.parse(raw); } catch { parsed = null; }
+
+        const seen = [];
+        for (const ev of parsed?.events || []) {
+          const s = ev.source || {};
+          seen.push({
+            sourceType: s.type || '?',
+            id: s.groupId || s.roomId || s.userId || '',
+            event: ev.type,
+            at: ev.timestamp || Date.now(),
+          });
+        }
+
+        if (seen.length) {
+          const prev = JSON.parse((await env.SOLAR_KV.get('line:sources')) || '[]');
+          await env.SOLAR_KV.put('line:sources', JSON.stringify([...seen, ...prev].slice(0, 20)));
+        }
+
+        // ต้องตอบ 200 เสมอ ไม่งั้น LINE จะปิด webhook ให้เองเมื่อพลาดบ่อย ๆ
+        return json({ ok: true, verified, got: seen.length });
+      }
+
       if (cfg.dashboardToken) {
         const given = url.searchParams.get('k') || request.headers.get('x-token') || '';
         if (given !== cfg.dashboardToken) return new Response('ไม่มีสิทธิ์เข้าถึง', { status: 401 });
+      }
+
+      // อ่านรายการ source ที่ LINE เคยส่งมา — อยู่หลังด่านโทเคนเพราะเป็นข้อมูลของบัญชี
+      if (path === '/api/line-sources') {
+        return json(JSON.parse((await env.SOLAR_KV.get('line:sources')) || '[]'));
       }
 
       if (path === '/' || path === '/index.html') {
@@ -209,7 +254,7 @@ export default {
 
       // ส่งข้อความทดสอบเข้ากลุ่ม เอาไว้เช็คว่าตั้ง Telegram ถูกไหม
       if (path === '/api/test-alert') {
-        const tg = await sendTelegram(cfg, `🧪 <b>ทดสอบระบบแจ้งเตือน</b>\n${cfg.siteName} • ${hhmm()} น.\nถ้าเห็นข้อความนี้ แปลว่าตั้งค่าถูกแล้วครับ`);
+        const tg = await sendChat(cfg, `🧪 <b>ทดสอบระบบแจ้งเตือน</b>\n${cfg.siteName} • ${hhmm()} น.\nถ้าเห็นข้อความนี้ แปลว่าตั้งค่าถูกแล้วครับ`);
         const mail = await sendEmail(cfg, `🧪 ทดสอบระบบแจ้งเตือน ${cfg.siteName}`, '<p>ถ้าเห็นอีเมลนี้ แปลว่าตั้งค่าถูกแล้วครับ</p>');
         return json({ telegram: tg, email: mail });
       }
@@ -254,7 +299,7 @@ async function poll(env, cfg, injected = null) {
     // เงียบมานานผิดปกติ -> บอกให้รู้ครั้งเดียว จะได้ไม่เข้าใจผิดว่า "ไม่มีข้อความ = ไม่มีปัญหา"
     if (prev.lastOkAt && minutesBetween(now, prev.lastOkAt) >= 60 && minutesBetween(now, prev.lastSilenceAlertAt || 0) >= 180) {
       state.lastSilenceAlertAt = now;
-      await sendTelegram(
+      await sendChat(
         cfg,
         `⚠️ <b>ระบบเฝ้าระวังดึงข้อมูลไม่ได้</b>\nไม่ได้รับข้อมูลจาก FusionSolar มา ${Math.round(minutesBetween(now, prev.lastOkAt))} นาที\nสาเหตุ: ${escapeTg(state.lastError.message)}\n\n<i>ช่วงนี้ระบบจะไม่เตือนเรื่องการใช้ไฟ ให้เฝ้าเองไปก่อนครับ</i>`,
       );
@@ -368,11 +413,11 @@ async function poll(env, cfg, injected = null) {
   for (const ev of allEvents) {
     const msg = buildMessage(ev, cfg, now);
     if (!msg) continue;
-    const tg = await sendTelegram(cfg, msg.telegram, { toBoss: !!msg.toBoss, silent: msg.priority === 'low' });
+    const tg = await sendChat(cfg, msg.telegram, { toBoss: !!msg.toBoss, silent: msg.priority === 'low' });
     let mail = { skipped: 'ไม่ส่งอีเมลสำหรับเหตุการณ์นี้' };
     // อีเมลเก็บไว้เฉพาะเรื่องใหญ่ ไม่งั้นคนจะชินแล้วเลิกอ่าน
     if (msg.priority === 'high' && msg.emailSubject) mail = await sendEmail(cfg, msg.emailSubject, msg.emailHtml);
-    sent.push({ type: ev.type, telegram: tg.ok, email: !!mail.ok });
+    sent.push({ type: ev.type, chat: tg.ok, email: !!mail.ok });
   }
 
   await writeState(env, state);
@@ -409,7 +454,7 @@ async function checkPushHealth(env, cfg) {
   if (minutesBetween(now, state.lastSilenceAlertAt || 0) < 180) return { ok: false, quietMin, alerted: false };
 
   await writeState(env, { ...state, lastSilenceAlertAt: now });
-  await sendTelegram(
+  await sendChat(
     cfg,
     `⚠️ <b>ตัวอ่านในโรงงานหยุดส่งข้อมูล</b>\n${escapeTg(cfg.siteName)} • ${hhmm(now)} น.\n` +
       (last ? `ข้อมูลล่าสุดเมื่อ ${hhmm(last.t)} น. (${Math.round(quietMin)} นาทีที่แล้ว)` : 'ยังไม่เคยได้รับข้อมูลเลย') +
@@ -427,7 +472,7 @@ async function dailySummary(env, cfg) {
   const msg = buildDailySummary(state, cfg, now, monthHeadroom(state.demand || emptyDemand(), cfg));
   if (!msg) return { ok: false, error: 'ยังไม่มีข้อมูลของวันนี้' };
 
-  await sendTelegram(cfg, msg.telegram, { silent: true });
+  await sendChat(cfg, msg.telegram, { silent: true });
   await sendEmail(cfg, msg.emailSubject, msg.emailHtml);
 
   // เก็บสรุปของวันไว้ 60 วัน แล้วรีเซ็ตค่าพีคของวัน
@@ -458,14 +503,14 @@ async function handleTelegramWebhook(request, env, cfg) {
 
   if (cmd === '/ack' || cmd === '/รับทราบ') {
     await writeState(env, { ...state, ackAt: now, ackBy: name });
-    await sendTelegram(cfg, `👍 รับทราบแล้วโดย <b>${escapeTg(name)}</b> — ระบบจะหยุดเตือนซ้ำ ${cfg.ackSuppressMin} นาที\nถ้าไฟหลวงยังเข้าหนักหลังจากนั้น จะเตือนใหม่อีกครั้ง`, { silent: true });
+    await sendChat(cfg, `👍 รับทราบแล้วโดย <b>${escapeTg(name)}</b> — ระบบจะหยุดเตือนซ้ำ ${cfg.ackSuppressMin} นาที\nถ้าไฟหลวงยังเข้าหนักหลังจากนั้น จะเตือนใหม่อีกครั้ง`, { silent: true });
     return json({ ok: true });
   }
 
   if (cmd === '/mute') {
     const mins = Math.min(240, Math.max(5, Number(text.split(/\s+/)[1]) || 60));
     await writeState(env, { ...state, mutedUntil: now + mins * 60000 });
-    await sendTelegram(
+    await sendChat(
       cfg,
       `🔕 ปิดเสียงเตือนเรื่องค่าไฟ ${mins} นาที (โดย ${escapeTg(name)})\n\n<i>หมายเหตุ: การเตือนเรื่องเพดาน ${cfg.demandLimitKw} kW ยังทำงานอยู่ตามปกติ — ปิดไม่ได้ เพราะพลาดครั้งเดียวผูกยาว 12 เดือน</i>`,
       { silent: true },
@@ -479,7 +524,7 @@ async function handleTelegramWebhook(request, env, cfg) {
     const pending = Object.entries(schedule.tasks).filter(([, t]) => !t.done && !t.gaveUp);
     for (const [id, t] of pending) schedule.tasks[id] = { ...t, done: true, doneAt: now, doneBy: name };
     await writeState(env, { ...state, schedule });
-    await sendTelegram(
+    await sendChat(
       cfg,
       pending.length
         ? `✅ รับทราบว่า${pending.map(([id]) => escapeTg((cfg.dailyTasks || []).find((t) => t.id === id)?.name || id)).join(', ')} เรียบร้อยแล้ว (โดย ${escapeTg(name)})\n\n<i>ระบบจะหยุดย้ำ แต่ยังเฝ้าเรื่องเพดาน ${cfg.demandLimitKw} kW ให้ตามปกติ</i>`
@@ -501,7 +546,7 @@ async function handleTelegramWebhook(request, env, cfg) {
     // พักเฉพาะ "การสั่งปิดอัตโนมัติ" 30 นาที — ไม่ใช่ปิดปากการเตือนเพดาน
     // (ถ้าไปตั้ง mutedUntil ตรงนี้ จะกลายเป็นว่ากด /restore แล้วระบบเงียบเรื่อง 30 kW ไปด้วย ซึ่งอันตราย)
     await writeState(env, { ...state, shed, shedPauseUntil: now + 30 * 60000 });
-    await sendTelegram(
+    await sendChat(
       cfg,
       offZones.length
         ? `✅ เปิดกลับ ${offZones.length} โซนแล้ว (โดย ${escapeTg(name)})\n${offZones.map((z) => `• ${escapeTg(z.name)}`).join('\n')}\n\n<i>ระบบจะไม่สั่งปิดอัตโนมัติอีก 30 นาที</i>`
@@ -529,12 +574,12 @@ async function handleTelegramWebhook(request, env, cfg) {
           .filter(Boolean)
           .join('\n')
       : `${icon}\nยังไม่มีข้อมูล`;
-    await sendTelegram(cfg, body, { silent: true });
+    await sendChat(cfg, body, { silent: true });
     return json({ ok: true });
   }
 
   if (cmd === '/help' || cmd === '/start') {
-    await sendTelegram(
+    await sendChat(
       cfg,
       `🤖 <b>คำสั่งที่ใช้ได้</b>\n/status — ดูสถานะตอนนี้ + พีคของเดือน\n/done — แจ้งว่าปิดแอร์ตามรอบแล้ว\n/ack — แจ้งว่ารับเรื่องแล้ว (หยุดเตือนซ้ำ ${cfg.ackSuppressMin} นาที)\n/restore — เปิดอุปกรณ์ที่ระบบสั่งปิดกลับทั้งหมด\n/mute 60 — ปิดเสียงเตือนชั่วคราว (นาที)`,
       { silent: true },
@@ -629,6 +674,31 @@ function allOn(cfg) {
 
 function escapeTg(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/**
+ * ตรวจว่า request มาจาก LINE จริง
+ *
+ * LINE เซ็น body ด้วย HMAC-SHA256 โดยใช้ channel secret แล้วส่งมาใน
+ * header x-line-signature เป็น base64 ถ้าไม่ตรวจ ใครก็ยิงอะไรเข้ามาก็ได้
+ */
+async function verifyLineSignature(secret, body, signature) {
+  if (!signature) return false;
+  try {
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw',
+      enc.encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign'],
+    );
+    const mac = await crypto.subtle.sign('HMAC', key, enc.encode(body));
+    const expected = btoa(String.fromCharCode(...new Uint8Array(mac)));
+    return expected === signature;
+  } catch {
+    return false;
+  }
 }
 
 function json(data, status = 200) {
