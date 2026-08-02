@@ -89,6 +89,26 @@ export function loadConfig(env = {}) {
     autoshedMaxZones: num(env.AUTOSHED_MAX_ZONES, 3), // ปิดพร้อมกันได้มากสุดกี่โซน
     autoshedRestoreGapMin: num(env.AUTOSHED_RESTORE_GAP_MIN, 3), // เปิดกลับห่างกันกี่นาที (กันกระชากพร้อมกัน)
 
+    // ---------- งานประจำที่ต้องทำทุกวัน (ตัวกันเคส "คนที่รับผิดชอบไม่อยู่") ----------
+    // at           เวลาที่ต้องทำ (เวลาไทย)
+    // graceMin     ให้เวลากี่นาทีก่อนเริ่มตรวจ
+    // expectDropKw คาดว่า "โหลดรวม" จะลดลงอย่างน้อยกี่ kW ถ้ามีคนทำจริง
+    // repeatMin    ย้ำทุกกี่นาทีถ้ายังไม่มีใครทำ
+    // giveUpMin    เลยเวลามากี่นาทีแล้วหยุดย้ำ (แต่จะสรุปให้รู้ว่าวันนี้ไม่มีใครทำ)
+    dailyTasks: parseJson(env.DAILY_TASKS, [
+      {
+        id: 'ac_1500',
+        name: 'ปิดแอร์ 3 ตัว',
+        at: '15:00',
+        graceMin: 10,
+        expectDropKw: 8,
+        repeatMin: 10,
+        giveUpMin: 90,
+        days: [1, 2, 3, 4, 5, 6],
+        owner: 'ฝ่ายธุรการ',
+      },
+    ]),
+
     // โซนที่ระบบสั่งได้ ตั้งเป็น JSON ที่ตัวแปร ZONES — ดูตัวอย่างใน docs/AUTOSHED.md
     // priority น้อย = ยอมให้ปิดก่อน, protected = ห้ามแตะเด็ดขาด
     zones: parseJson(env.ZONES, []),

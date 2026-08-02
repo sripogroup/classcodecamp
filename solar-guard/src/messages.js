@@ -218,6 +218,71 @@ export function buildMessage(event, cfg, now = Date.now()) {
       };
     }
 
+    case 'task_missed': {
+      const t = event.task;
+      const urgent = event.attempt >= 2;
+      const body = [
+        urgent
+          ? `🚨🚨 <b>ยังไม่มีใคร${esc(t.name)} — ผ่านมา ${event.overdueMin} นาทีแล้ว</b>`
+          : `⏰ <b>ถึงเวลา${esc(t.name)}แล้ว แต่ยังไม่มีใครทำ</b>`,
+        `${site} • ${time} น. • กำหนดไว้ ${esc(t.at)} น.${t.owner ? ` (${esc(t.owner)})` : ''}`,
+        '',
+        `📊 โหลดรวมก่อนถึงเวลา ${kw(event.baselineKw)} → ตอนนี้ ${kw(event.loadKw)}`,
+        `ลดลงแค่ ${kw(event.dropKw)} จากที่ควรลด ${kw(t.expectDropKw)} — แปลว่ายังไม่ได้ปิด`,
+        '',
+        `⚡ ตอนนี้ดึงไฟจากการไฟฟ้า <b>${kw(sample.grid)}</b>`,
+        urgent
+          ? `\n❗ ครั้งก่อนที่ไม่มีคนปิด กว่าจะรู้ตัวคือ 5 ชั่วโมงให้หลัง และโดนค่าไฟแพงไปทั้งปี`
+          : '',
+        '',
+        urgent
+          ? `<b>ใครก็ได้ที่อยู่หน้างานตอนนี้ ช่วยไปปิดให้หน่อยครับ ไม่ต้องรอเจ้าของงาน</b>`
+          : `ถ้าคนที่รับผิดชอบไม่อยู่ ฝากคนที่อยู่หน้างานไปปิดแทนได้เลย`,
+        '',
+        `<i>ปิดแล้วพิมพ์ /done ในกลุ่มนี้</i>`,
+      ]
+        .filter((x) => x !== '')
+        .join('\n');
+      return {
+        priority: urgent ? 'high' : 'normal',
+        toBoss: !!event.toBoss,
+        telegram: body,
+        emailSubject: `${urgent ? '🚨' : '⏰'} ${cfg.siteName}: ยังไม่มีใคร${t.name} (เลยมา ${event.overdueMin} นาที)`,
+        emailHtml: htmlWrap(body, urgent ? '#dc2626' : '#d97706'),
+      };
+    }
+
+    case 'task_failed': {
+      const t = event.task;
+      const body = [
+        `❌ <b>วันนี้ไม่มีใคร${esc(t.name)}</b>`,
+        `${site} • กำหนดไว้ ${esc(t.at)} น. • ผ่านมา ${event.overdueMin} นาทีแล้ว`,
+        '',
+        `📊 โหลดรวมยังอยู่ที่ ${kw(event.loadKw)} (ก่อนถึงเวลา ${kw(event.baselineKw)})`,
+        `⚡ ดึงไฟจากการไฟฟ้า ${kw(sample.grid)}`,
+        '',
+        `ระบบจะหยุดย้ำเรื่องนี้แล้ว แต่ยังเฝ้าเรื่องเพดาน ${cfg.demandLimitKw} kW ให้ตามปกติ`,
+        `แนะนำให้ตั้งคนสำรองไว้ 1 คนสำหรับงานนี้ — วันที่คนหลักลา จะได้ไม่หลุดอีก`,
+      ].join('\n');
+      return {
+        priority: 'high',
+        toBoss: true,
+        telegram: body,
+        emailSubject: `❌ ${cfg.siteName}: วันนี้ไม่มีใคร${t.name}`,
+        emailHtml: htmlWrap(body, '#991b1b'),
+      };
+    }
+
+    case 'task_done': {
+      const t = event.task;
+      const body = [
+        `✅ <b>${esc(t.name)} เรียบร้อยแล้ว</b>`,
+        `${site} • ${time} น.${event.overdueMin > 15 ? ` (ช้ากว่ากำหนด ${event.overdueMin} นาที)` : ''}`,
+        `โหลดรวมลดลง ${kw(event.dropKw)} — เหลือ ${kw(event.loadKw)}`,
+      ].join('\n');
+      return { priority: 'low', telegram: body, emailSubject: null, emailHtml: null };
+    }
+
     case 'restore': {
       const lines = event.changes.map((a) => `✅ ${esc(a.name)} → <b>เปิดกลับแล้ว</b> (+${round1(a.kw)} kW)`);
       const body = [`🟢 <b>เปิดอุปกรณ์กลับแล้ว</b>`, `${site} • ${time} น.`, '', lines.join('\n')].join('\n');

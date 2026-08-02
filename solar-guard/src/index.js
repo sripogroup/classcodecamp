@@ -12,6 +12,7 @@ import { FusionSolar } from './fusionsolar.js';
 import { emptyState, evaluate, evaluateDemand, pickActions } from './analyze.js';
 import { emptyDemand, feedDemand, monthHeadroom, windowView } from './demand.js';
 import { decideShed, desiredMap, emptyShedState } from './autoshed.js';
+import { checkSchedule, emptyScheduleState } from './schedule.js';
 import { applyZone } from './drivers/index.js';
 import { buildDailySummary, buildMessage } from './messages.js';
 import { sendTelegram, setTelegramWebhook } from './notify/telegram.js';
@@ -172,7 +173,17 @@ async function poll(env, cfg) {
   // ห้ามใช้ actions ของสายค่าไฟ เพราะสายนั้นยังหน่วงเวลาอยู่ ตอนเตือนรอบแรกมันจะยังเป็นลิสต์ว่าง
   // แล้วข้อความที่ด่วนที่สุดจะออกไปโดยไม่บอกใครว่าต้องทำอะไร
   const demandActions = pickActions(cfg, Math.max(0, demandRes.window.projectedKw - cfg.demandTargetKw));
-  const allEvents = [...comfortEvents, ...demandEval.events.map((e) => ({ ...e, actions: demandActions }))];
+
+  // ---- 3.5) งานประจำที่ต้องทำทุกวัน (เช่น ปิดแอร์ 15:00) ----
+  // ใช้ samples ของรอบก่อนหน้าเป็นฐาน เพราะ state.samples รอบนี้มี sample ปัจจุบันรวมอยู่แล้ว
+  const sched = checkSchedule(prev.schedule || emptyScheduleState(), sample, prev.samples || [], cfg, now);
+  state.schedule = sched.state;
+
+  const allEvents = [
+    ...comfortEvents,
+    ...demandEval.events.map((e) => ({ ...e, actions: demandActions })),
+    ...sched.events,
+  ];
 
   // ---- 4) ตัดโหลดอัตโนมัติ ----
   const shedRes = decideShed(
@@ -295,6 +306,22 @@ async function handleTelegramWebhook(request, env, cfg) {
     return json({ ok: true });
   }
 
+  // แจ้งว่าทำงานประจำเรียบร้อยแล้ว (เผื่อระบบวัดโหลดไม่ทัน หรือปิดอย่างอื่นแทน)
+  if (cmd === '/done' || cmd === '/ปิดแล้ว') {
+    const schedule = { ...(state.schedule || emptyScheduleState()), tasks: { ...(state.schedule?.tasks || {}) } };
+    const pending = Object.entries(schedule.tasks).filter(([, t]) => !t.done && !t.gaveUp);
+    for (const [id, t] of pending) schedule.tasks[id] = { ...t, done: true, doneAt: now, doneBy: name };
+    await writeState(env, { ...state, schedule });
+    await sendTelegram(
+      cfg,
+      pending.length
+        ? `✅ รับทราบว่า${pending.map(([id]) => escapeTg((cfg.dailyTasks || []).find((t) => t.id === id)?.name || id)).join(', ')} เรียบร้อยแล้ว (โดย ${escapeTg(name)})\n\n<i>ระบบจะหยุดย้ำ แต่ยังเฝ้าเรื่องเพดาน ${cfg.demandLimitKw} kW ให้ตามปกติ</i>`
+        : `ตอนนี้ไม่มีงานที่ค้างอยู่ครับ`,
+      { silent: true },
+    );
+    return json({ ok: true });
+  }
+
   // เปิดอุปกรณ์ที่ระบบสั่งปิดไว้กลับมาทั้งหมด (คนสั่งชนะระบบเสมอ)
   if (cmd === '/restore' || cmd === '/เปิดกลับ') {
     const zones = cfg.zones || [];
@@ -342,7 +369,7 @@ async function handleTelegramWebhook(request, env, cfg) {
   if (cmd === '/help' || cmd === '/start') {
     await sendTelegram(
       cfg,
-      `🤖 <b>คำสั่งที่ใช้ได้</b>\n/status — ดูสถานะตอนนี้ + พีคของเดือน\n/ack — แจ้งว่ารับเรื่องแล้ว (หยุดเตือนซ้ำ ${cfg.ackSuppressMin} นาที)\n/restore — เปิดอุปกรณ์ที่ระบบสั่งปิดกลับทั้งหมด\n/mute 60 — ปิดเสียงเตือนชั่วคราว (นาที)`,
+      `🤖 <b>คำสั่งที่ใช้ได้</b>\n/status — ดูสถานะตอนนี้ + พีคของเดือน\n/done — แจ้งว่าปิดแอร์ตามรอบแล้ว\n/ack — แจ้งว่ารับเรื่องแล้ว (หยุดเตือนซ้ำ ${cfg.ackSuppressMin} นาที)\n/restore — เปิดอุปกรณ์ที่ระบบสั่งปิดกลับทั้งหมด\n/mute 60 — ปิดเสียงเตือนชั่วคราว (นาที)`,
       { silent: true },
     );
     return json({ ok: true });
@@ -355,7 +382,7 @@ async function handleTelegramWebhook(request, env, cfg) {
 
 async function readState(env) {
   const raw = await env.SOLAR_KV.get(STATE_KEY, 'json');
-  const base = { ...emptyState(), demand: emptyDemand(), shed: emptyShedState() };
+  const base = { ...emptyState(), demand: emptyDemand(), shed: emptyShedState(), schedule: emptyScheduleState() };
   return raw ? { ...base, ...raw } : base;
 }
 
