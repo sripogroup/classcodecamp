@@ -1,0 +1,17 @@
+# คัดลอกไฟล์นี้เป็น .dev.vars สำหรับทดสอบบนเครื่องตัวเอง (npx wrangler dev)
+# ห้าม commit ไฟล์ .dev.vars ขึ้น git เด็ดขาด
+
+FUSION_USER=ชื่อผู้ใช้ Northbound API
+FUSION_SYSTEM_CODE=system code
+
+TELEGRAM_BOT_TOKEN=123456:AAxxxxxxxxxxxxxxxxxxxx
+TELEGRAM_CHAT_ID=-1001234567890
+TELEGRAM_BOSS_CHAT_ID=
+TELEGRAM_WEBHOOK_SECRET=สุ่มอะไรก็ได้
+
+RESEND_API_KEY=
+BREVO_API_KEY=
+MAIL_FROM=solar@yourdomain.com
+MAIL_TO=hr@yourdomain.com,manager@yourdomain.com
+
+DASHBOARD_TOKEN=ตั้งรหัสอะไรก็ได้

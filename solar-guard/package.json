@@ -1,0 +1,16 @@
+{
+  "name": "solar-guard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "เฝ้าระวังการใช้ไฟจากระบบโซลาร์ Huawei FusionSolar และแจ้งเตือนพนักงานทาง Telegram/อีเมล รันบน Cloudflare Workers",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "logs": "wrangler tail",
+    "test": "node test/analyze.test.js"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

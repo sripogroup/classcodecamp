@@ -1,0 +1,74 @@
+name = "solar-guard"
+main = "src/index.js"
+compatibility_date = "2025-06-01"
+
+# ---- ตารางเวลา (Cron ของ Cloudflare ใช้เวลา UTC เสมอ) ----
+# "*/5 * * * *"  = ดึงข้อมูลทุก 5 นาที (FusionSolar จำกัดความถี่ ห้ามถี่กว่านี้)
+# "30 10 * * *"  = 10:30 UTC = 17:30 น. เวลาไทย -> ส่งสรุปประจำวัน
+[triggers]
+crons = ["*/5 * * * *", "30 10 * * *"]
+
+# ---- ที่เก็บสถานะ ----
+# สร้างด้วย:  npx wrangler kv namespace create SOLAR_KV
+# แล้วเอา id ที่ได้มาใส่ตรงนี้
+[[kv_namespaces]]
+binding = "SOLAR_KV"
+id = "ใส่_KV_NAMESPACE_ID_ตรงนี้"
+
+[observability]
+enabled = true
+
+# ---- ค่าตั้งที่ไม่ใช่ความลับ แก้ได้ตรงนี้หรือแก้ทีหลังในหน้าเว็บ Cloudflare ----
+[vars]
+SITE_NAME = "โรงงาน"
+FUSION_BASE = "https://intl.fusionsolar.huawei.com"
+
+# ขนาดระบบโซลาร์ที่ติดตั้ง (kWp) — ใช้เช็คว่าอินเวอร์เตอร์ยังทำงานอยู่ไหม
+SYSTEM_KWP = "100"
+
+# ทิศทางมิเตอร์: 1 = ค่าบวกคือซื้อไฟเข้า, -1 = ค่าบวกคือขายไฟออก
+# วิธีเช็ค: เปิด /api/poll ตอนกลางคืน ถ้า grid ติดลบ ให้เปลี่ยนเป็น "-1"
+METER_SIGN = "1"
+
+# เกณฑ์เตือน (kW ของไฟที่ซื้อจากการไฟฟ้า) — ปรับตามโรงงาน ดูวิธีตั้งใน docs/ALERTING.md
+WARN_IMPORT_KW = "15"
+CRIT_IMPORT_KW = "30"
+HYSTERESIS_KW = "5"
+SUSTAIN_POLLS = "2"
+RECOVER_POLLS = "3"
+
+# กันสแปม
+REPEAT_MIN = "30"
+ESCALATE_MIN = "20"
+ACK_SUPPRESS_MIN = "60"
+
+# เวลาทำงาน (0 = อาทิตย์)
+WORK_START_HOUR = "8"
+WORK_END_HOUR = "17"
+WORK_DAYS = "1,2,3,4,5,6"
+
+# เฝ้าระวังกลางคืน (อุปกรณ์เปิดค้าง)
+NIGHT_WATCH = "true"
+NIGHT_IDLE_KW = "8"
+
+# ค่าไฟ
+TARIFF_ON_PEAK = "4.5"
+TARIFF_OFF_PEAK = "2.8"
+USE_TOU = "false"
+PEAK_DEMAND_TARGET_KW = "0"
+DEMAND_CHARGE = "0"
+
+# รายการอุปกรณ์ที่ให้พนักงานไปปิด เรียงตาม kW ที่ลดได้
+LOAD_SHED_LIST = '[{"name":"แอร์ออฟฟิศชั้น 2","kw":12,"owner":"ธุรการ"},{"name":"แอร์ห้องประชุม (ถ้าไม่มีประชุม)","kw":6,"owner":"ธุรการ"},{"name":"ปั๊มน้ำสำรอง","kw":7,"owner":"ช่างซ่อมบำรุง"},{"name":"เลื่อนเดินคอมเพรสเซอร์ตัวที่ 2","kw":15,"owner":"หัวหน้ากะ"}]'
+
+# ---- ค่าที่เป็นความลับ ห้ามใส่ในไฟล์นี้ ให้ใช้คำสั่ง wrangler secret put ----
+# npx wrangler secret put FUSION_USER
+# npx wrangler secret put FUSION_SYSTEM_CODE
+# npx wrangler secret put TELEGRAM_BOT_TOKEN
+# npx wrangler secret put TELEGRAM_CHAT_ID
+# npx wrangler secret put TELEGRAM_BOSS_CHAT_ID
+# npx wrangler secret put TELEGRAM_WEBHOOK_SECRET
+# npx wrangler secret put RESEND_API_KEY      (หรือ BREVO_API_KEY)
+# npx wrangler secret put MAIL_FROM
+# npx wrangler secret put MAIL_TO
+# npx wrangler secret put DASHBOARD_TOKEN

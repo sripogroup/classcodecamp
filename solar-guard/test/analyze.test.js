@@ -1,0 +1,249 @@
+/**
+ * ทดสอบสมองของระบบ (ไม่ต้องต่อเน็ต ไม่ต้องมี Cloudflare)
+ * รันด้วย:  node test/analyze.test.js
+ */
+
+import assert from 'node:assert';
+import { loadConfig } from '../src/config.js';
+import { emptyState, evaluate, pickActions } from '../src/analyze.js';
+import { buildDailySummary, buildMessage } from '../src/messages.js';
+
+const cfg = loadConfig({
+  WARN_IMPORT_KW: '15',
+  CRIT_IMPORT_KW: '30',
+  HYSTERESIS_KW: '5',
+  SUSTAIN_POLLS: '2',
+  RECOVER_POLLS: '3',
+  SYSTEM_KWP: '100',
+  WORK_START_HOUR: '8',
+  WORK_END_HOUR: '17',
+  SITE_NAME: 'โรงงานทดสอบ',
+});
+
+// 2026-08-03 เป็นวันจันทร์ — 13:00 น. เวลาไทย = 06:00 UTC
+const NOON = Date.parse('2026-08-03T06:00:00Z');
+const FIVE_MIN = 5 * 60000;
+
+let pass = 0;
+function test(name, fn) {
+  try {
+    fn();
+    pass++;
+    console.log(`  ✅ ${name}`);
+  } catch (err) {
+    console.error(`  ❌ ${name}\n     ${err.message}`);
+    process.exitCode = 1;
+  }
+}
+
+/**
+ * ป้อนค่าไฟหลายรอบติดกัน
+ * คืน events = เหตุการณ์ของรอบสุดท้าย, allEvents = ทุกเหตุการณ์ที่เกิดตลอดชุด
+ */
+function feed(state, series, startAt = NOON) {
+  let s = state;
+  let last = null;
+  const allEvents = [];
+  series.forEach((row, i) => {
+    const t = startAt + i * FIVE_MIN;
+    const sample = { t, pv: row.pv, grid: row.grid, load: row.pv + row.grid };
+    last = evaluate(s, sample, cfg, t);
+    allEvents.push(...last.events);
+    s = last.state;
+  });
+  return { ...last, allEvents };
+}
+
+console.log('\nสถานะและการเตือน');
+
+test('ไฟหลวงต่ำ = เขียว ไม่มีการเตือน', () => {
+  const out = feed(emptyState(), [
+    { pv: 60, grid: 3 },
+    { pv: 58, grid: 4 },
+    { pv: 61, grid: 2 },
+  ]);
+  assert.equal(out.state.level, 'green');
+  assert.equal(out.events.length, 0);
+});
+
+test('เมฆบังแป๊บเดียว (เกินเกณฑ์รอบเดียว) ต้องไม่เตือน', () => {
+  const out = feed(emptyState(), [
+    { pv: 60, grid: 3 },
+    { pv: 20, grid: 35 }, // เมฆบัง 5 นาที
+    { pv: 58, grid: 4 }, // แดดกลับมา
+  ]);
+  assert.equal(out.state.level, 'green', 'ยังต้องเป็นเขียว');
+  assert.equal(out.events.length, 0, 'ห้ามมีข้อความเตือน');
+});
+
+test('เกินเกณฑ์แดงต่อเนื่อง 10 นาที = เตือนแดง 1 ครั้ง', () => {
+  const out = feed(emptyState(), [
+    { pv: 60, grid: 3 },
+    { pv: 20, grid: 35 },
+    { pv: 18, grid: 36 },
+  ]);
+  assert.equal(out.state.level, 'red');
+  const alerts = out.events.filter((e) => e.type === 'alert');
+  assert.equal(alerts.length, 1);
+  assert.equal(alerts[0].level, 'red');
+});
+
+test('เตือนแล้วรอบถัดไปไม่เตือนซ้ำ (กันสแปม)', () => {
+  const out = feed(emptyState(), [
+    { pv: 60, grid: 3 },
+    { pv: 20, grid: 35 },
+    { pv: 18, grid: 36 },
+    { pv: 18, grid: 37 },
+    { pv: 19, grid: 34 },
+  ]);
+  assert.equal(out.events.filter((e) => e.type === 'alert').length, 0);
+});
+
+test('hysteresis: ตกลงมาที่ 27 kW ยังไม่ถือว่าหายแดง (เกณฑ์ลง = 30-5)', () => {
+  let out = feed(emptyState(), [
+    { pv: 60, grid: 3 },
+    { pv: 20, grid: 35 },
+    { pv: 18, grid: 36 },
+  ]);
+  out = feed(out.state, [
+    { pv: 25, grid: 27 },
+    { pv: 25, grid: 27 },
+    { pv: 25, grid: 27 },
+  ], NOON + 3 * FIVE_MIN);
+  assert.equal(out.state.level, 'red');
+});
+
+test('ลดลงต่อเนื่อง 15 นาที = ส่งข้อความกลับสู่ปกติ', () => {
+  let out = feed(emptyState(), [
+    { pv: 60, grid: 3 },
+    { pv: 20, grid: 35 },
+    { pv: 18, grid: 36 },
+  ]);
+  out = feed(out.state, [
+    { pv: 55, grid: 5 },
+    { pv: 57, grid: 4 },
+    { pv: 58, grid: 3 },
+  ], NOON + 3 * FIVE_MIN);
+  assert.equal(out.state.level, 'green');
+  assert.equal(out.events.filter((e) => e.type === 'recover').length, 1);
+});
+
+test('กด /ack แล้วต้องไม่ย้ำซ้ำ', () => {
+  let out = feed(emptyState(), [
+    { pv: 60, grid: 3 },
+    { pv: 20, grid: 35 },
+    { pv: 18, grid: 36 },
+  ]);
+  const acked = { ...out.state, ackAt: NOON + 3 * FIVE_MIN, ackBy: 'สมชาย' };
+  const later = NOON + 12 * FIVE_MIN; // อีก 45 นาที
+  const res = evaluate(acked, { t: later, pv: 18, grid: 36, load: 54 }, cfg, later);
+  assert.equal(res.events.filter((e) => e.type === 'repeat').length, 0);
+});
+
+test('แดงนานเกิน 20 นาทีโดยไม่มีใครรับเรื่อง = ตามหัวหน้า', () => {
+  let out = feed(emptyState(), [
+    { pv: 60, grid: 3 },
+    { pv: 20, grid: 35 },
+    { pv: 18, grid: 36 },
+  ]);
+  const later = out.state.levelSince + 25 * 60000;
+  const res = evaluate(out.state, { t: later, pv: 18, grid: 36, load: 54 }, cfg, later);
+  assert.equal(res.events.filter((e) => e.type === 'escalate').length, 1);
+});
+
+test('/mute แล้วต้องเงียบสนิท', () => {
+  const state = { ...emptyState(), mutedUntil: NOON + 60 * 60000 };
+  const out = feed(state, [
+    { pv: 20, grid: 35 },
+    { pv: 18, grid: 36 },
+    { pv: 18, grid: 37 },
+  ]);
+  assert.equal(out.events.length, 0);
+});
+
+console.log('\nการหาสาเหตุ');
+
+test('แดดหาย -> บอกว่าแดดหาย', () => {
+  const out = feed(emptyState(), [
+    { pv: 60, grid: 3 },
+    { pv: 55, grid: 8 },
+    { pv: 20, grid: 40 },
+    { pv: 18, grid: 42 },
+  ]);
+  assert.match(out.cause.text, /แดดหาย|แดดตกลง/);
+});
+
+test('โหลดเพิ่ม -> บอกว่าเปิดอุปกรณ์เพิ่ม', () => {
+  const out = feed(emptyState(), [
+    { pv: 60, grid: 2 },
+    { pv: 60, grid: 3 },
+    { pv: 60, grid: 35 },
+    { pv: 60, grid: 36 },
+  ]);
+  assert.match(out.cause.text, /เปิดอุปกรณ์เพิ่ม|โหลดขึ้น/);
+});
+
+test('แดดแรงแต่โซลาร์ไม่ผลิต -> เตือนเรื่องอินเวอร์เตอร์', () => {
+  const out = feed(emptyState(), [
+    { pv: 0, grid: 40 },
+    { pv: 0, grid: 41 },
+    { pv: 0, grid: 42 },
+  ]);
+  assert.equal(out.allEvents.filter((e) => e.type === 'inverter').length, 1);
+});
+
+console.log('\nกลางคืน');
+
+test('กลางคืนใช้ไฟเกินเกณฑ์ = เตือนของเปิดค้าง', () => {
+  const night = Date.parse('2026-08-03T15:00:00Z'); // 22:00 น. เวลาไทย
+  const out = feed(emptyState(), [{ pv: 0, grid: 12 }], night);
+  assert.equal(out.events.filter((e) => e.type === 'night').length, 1);
+});
+
+test('กลางคืนใช้ไฟน้อย = ไม่เตือน', () => {
+  const night = Date.parse('2026-08-03T15:00:00Z');
+  const out = feed(emptyState(), [{ pv: 0, grid: 3 }], night);
+  assert.equal(out.events.filter((e) => e.type === 'night').length, 0);
+});
+
+console.log('\nรายการสิ่งที่ให้ไปปิด');
+
+test('เลือกอุปกรณ์ให้พอกับส่วนที่เกิน', () => {
+  const picked = pickActions(cfg, 20);
+  const total = picked.reduce((a, x) => a + x.kw, 0);
+  assert.ok(total >= 20, `รวมได้ ${total} kW ต้อง >= 20`);
+});
+
+test('เกินนิดเดียวก็เลือกแค่ตัวเดียว', () => {
+  const picked = pickActions(cfg, 5);
+  assert.equal(picked.length, 1);
+});
+
+console.log('\nข้อความ');
+
+test('ข้อความแดงต้องมีตัวเลข kW เงิน และรายการให้ไปปิด', () => {
+  const out = feed(emptyState(), [
+    { pv: 60, grid: 3 },
+    { pv: 20, grid: 35 },
+    { pv: 18, grid: 36 },
+  ]);
+  const msg = buildMessage(out.events.find((e) => e.type === 'alert'), cfg, NOON);
+  assert.match(msg.telegram, /36 kW/);
+  assert.match(msg.telegram, /บาท\/ชั่วโมง/);
+  assert.match(msg.telegram, /ให้ทำตามลำดับนี้/);
+  assert.match(msg.telegram, /\/ack/);
+  assert.equal(msg.priority, 'high');
+});
+
+test('สรุปประจำวันคำนวณ kWh และเงินได้', () => {
+  let state = emptyState();
+  for (let i = 0; i < 12; i++) {
+    const t = NOON + i * FIVE_MIN;
+    state = evaluate(state, { t, pv: 50, grid: 10, load: 60 }, cfg, t).state;
+  }
+  const msg = buildDailySummary(state, cfg, NOON + 12 * FIVE_MIN);
+  assert.match(msg.telegram, /kWh/);
+  assert.match(msg.telegram, /ประหยัดได้วันนี้/);
+});
+
+console.log(`\n${pass} เทสต์ผ่าน${process.exitCode ? ' (มีบางข้อไม่ผ่าน)' : ' ทั้งหมด ✨'}\n`);
