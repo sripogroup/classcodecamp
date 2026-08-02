@@ -28,7 +28,16 @@
 param(
     [string]$CredentialFile,
     [string]$WorkerUrl,
-    [switch]$ShowState
+    [switch]$ShowState,
+
+    # Dump the worker's full reply. Use when a channel reports "sent" but the
+    # message never arrives - the per-recipient detail says which chat id was
+    # used and what the provider answered.
+    [switch]$Raw,
+
+    # Register the Telegram webhook so the bot can answer /ack /status /mute
+    # typed in the group. Without this the bot can only talk, not listen.
+    [switch]$SetupWebhook
 )
 
 Set-StrictMode -Version Latest
@@ -66,9 +75,20 @@ if (-not ($store.PSObject.Properties.Match("DashboardToken").Count) -or -not $st
 $headers = @{ "x-token" = (Get-Plain $store.DashboardToken) }
 $base = $WorkerUrl.TrimEnd("/")
 
+if ($SetupWebhook) {
+    Write-Host ""
+    Write-Host "Registering the Telegram webhook..." -ForegroundColor Cyan
+    $wh = Invoke-RestMethod -Uri "$base/api/setup-webhook" -Headers $headers -TimeoutSec 40
+    $wh | ConvertTo-Json -Depth 5 | Write-Host
+    Write-Host ""
+    Write-Host "Now type /status in the group - the bot should answer." -ForegroundColor Green
+    return
+}
+
 Write-Host ""
 Write-Host "Asking the worker to send a test alert..." -ForegroundColor Cyan
 $res = Invoke-RestMethod -Uri "$base/api/test-alert" -Headers $headers -TimeoutSec 40
+if ($Raw) { $res | ConvertTo-Json -Depth 6 | Write-Host }
 
 function Show-Channel {
     param([string]$Label, $Result)
