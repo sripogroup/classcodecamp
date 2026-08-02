@@ -101,6 +101,16 @@ param(
     [switch]$History,
     [string]$Date,
 
+    # Fetch any portal endpoint using the script's own signed-in session.
+    # Read-only: GET only. Used to inspect what the web UI talks to without
+    # needing a browser session, since the portal allows one session at a time.
+    [string]$Api,
+    [string]$ApiOut,
+
+    # 2 = day by 5 minutes (kW), 3 = month by day, 4 = year by month,
+    # 5 = lifetime by year. Anything other than 2 returns kWh totals.
+    [ValidateSet(2, 3, 4, 5)][int]$TimeDim = 2,
+
     # Scan a date range and report the worst grid-import moment of each day.
     # Used to find out what actually happened on the days that triggered a
     # tariff penalty, instead of guessing from memory.
@@ -497,13 +507,17 @@ function Get-FusionDay {
         arrays come back rather than assuming a shape - if Huawei renames
         things, you still get output instead of a crash.
     #>
-    param($Session, [string]$BaseUrl, [string]$StationDn, [string]$DayStr)
+    param($Session, [string]$BaseUrl, [string]$StationDn, [string]$DayStr, [int]$Dim = 2)
 
+    # timeDim: 2 = one day at 5-minute resolution (kW), 3 = a month by day,
+    # 4 = a year by month, 5 = lifetime by year. Only dim 2 carries power.
+    # The portal keeps 5-minute detail for roughly 15 months; older periods
+    # survive only as energy totals in the coarser dimensions.
     $midnight = [datetime]::ParseExact($DayStr, "yyyy-MM-dd", $null)
     $epoch = [int64]([datetimeoffset]::new($midnight, [timespan]::FromHours(7))).ToUnixTimeMilliseconds()
 
-    $url = "{0}/rest/pvms/web/station/v3/overview/energy-balance?stationDn={1}&timeDim=2&queryTime={2}&dateStr={3}&timeZone=7.0&timeZoneStr=Asia/Bangkok" -f `
-           $BaseUrl, [uri]::EscapeDataString($StationDn), $epoch, [uri]::EscapeDataString("$DayStr 00:00:00")
+    $url = "{0}/rest/pvms/web/station/v3/overview/energy-balance?stationDn={1}&timeDim={2}&queryTime={3}&dateStr={4}&timeZone=7.0&timeZoneStr=Asia/Bangkok" -f `
+           $BaseUrl, [uri]::EscapeDataString($StationDn), $Dim, $epoch, [uri]::EscapeDataString("$DayStr 00:00:00")
 
     $raw = Invoke-RestMethod -Uri $url -WebSession $Session -TimeoutSec 40 -Headers @{ "Accept" = "application/json" }
     if ($raw -is [string]) { throw "SESSION_EXPIRED" }
@@ -533,7 +547,7 @@ if (-not $token -and -not $Probe) {
 }
 if (-not $token) { $token = $env:SOLARGUARD_INGEST_TOKEN }
 
-if (-not $Probe -and -not $NoPush -and -not $History -and -not $From) {
+if (-not $Probe -and -not $NoPush -and -not $History -and -not $From -and -not $Api) {
     if (-not $WorkerUrl) {
         $store = Get-StoredSecrets
         if ($store -and $store.WorkerUrl) { $WorkerUrl = $store.WorkerUrl }
@@ -592,6 +606,23 @@ if ($Probe) {
     return
 }
 
+if ($Api) {
+    $u = if ($Api -match '^https?://') { $Api } else { $Base.TrimEnd("/") + "/" + $Api.TrimStart("/") }
+    Write-Log "GET $($Api.Split('?')[0])"
+    $resp = Invoke-WebRequest -Uri $u -WebSession $session -UseBasicParsing -TimeoutSec 60 `
+            -Headers @{ "Accept" = "application/json" }
+    $body = $resp.Content
+    Write-Host ("status {0}, {1} bytes" -f $resp.StatusCode, $body.Length)
+    if ($ApiOut) {
+        Set-Content -Path $ApiOut -Value $body -Encoding utf8
+        Write-Host "saved to $ApiOut"
+    } else {
+        Write-Host ""
+        Write-Host $body.Substring(0, [Math]::Min(4000, $body.Length))
+    }
+    return
+}
+
 if ($From) {
     $start = [datetime]::ParseExact($From, "yyyy-MM-dd", $null)
     $end = if ($To) { [datetime]::ParseExact($To, "yyyy-MM-dd", $null) } else { $start }
@@ -626,13 +657,22 @@ if ($From) {
         if (-not $grid) { Write-Host ("  {0}   (no data)" -f $ds); $d = $d.AddDays(1); continue }
 
         $n = $grid.Count
-        $maxG = -9999.0; $maxAt = -1; $sumG = 0.0
+        $maxG = -9999.0; $maxAt = -1; $sumG = 0.0; $seen = 0
         for ($i = 0; $i -lt $n; $i++) {
             $o = 0.0
             if ([double]::TryParse([string]$grid[$i], [ref]$o)) {
+                $seen++
                 if ($o -gt $maxG) { $maxG = $o; $maxAt = $i }
                 if ($o -gt 0) { $sumG += $o }
             }
+        }
+
+        # Days before the system was commissioned come back as empty arrays.
+        # Say so plainly instead of printing the sentinel value.
+        if ($seen -eq 0 -or $maxAt -lt 0) {
+            Write-Host ("  {0}   (no data)" -f $ds)
+            $d = $d.AddDays(1)
+            continue
         }
         $minPer = 1440 / $n
         $tm = if ($maxAt -ge 0) { "{0:00}:{1:00}" -f [int](($maxAt * $minPer) / 60), [int](($maxAt * $minPer) % 60) } else { "--:--" }
@@ -663,8 +703,28 @@ if ($From) {
 
 if ($History) {
     $day = if ($Date) { $Date } else { (Get-Date).ToString("yyyy-MM-dd") }
-    Write-Log "Fetching the whole day for $day"
-    $d = Get-FusionDay -Session $session -BaseUrl $Base -StationDn $Station -DayStr $day
+    Write-Log ("Fetching timeDim {0} starting {1}" -f $TimeDim, $day)
+    $d = Get-FusionDay -Session $session -BaseUrl $Base -StationDn $Station -DayStr $day -Dim $TimeDim
+
+    if ($TimeDim -ne 2) {
+        # Coarser dimensions return energy totals (kWh), not power.
+        Write-Host ""
+        Write-Host "Energy totals (kWh) - period 1 is the first month/year in the range:"
+        foreach ($p in $d.PSObject.Properties) {
+            $v = $p.Value
+            if ($v -is [System.Array] -and $v.Count -ge 2) {
+                $line = "  {0,-22}" -f $p.Name
+                $i = 1
+                foreach ($x in $v) {
+                    $o = 0.0
+                    if ([double]::TryParse([string]$x, [ref]$o)) { $line += "{0,12:N0}" -f $o } else { $line += "{0,12}" -f "-" }
+                    $i++
+                }
+                Write-Host $line
+            }
+        }
+        return
+    }
 
     # There is no separate time axis. Every series is a flat array covering the
     # whole day at even spacing, so index N is minute N * (1440 / count).
