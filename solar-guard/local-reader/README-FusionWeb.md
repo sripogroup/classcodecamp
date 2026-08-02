@@ -182,6 +182,24 @@ powershell -ExecutionPolicy Bypass -File .\Install-Task.ps1 -Remove
 
 ---
 
+## กับดักตอนตั้ง secret บน Cloudflare
+
+**อย่าใช้ `$token | npx wrangler secret put NAME` บน PowerShell** — การไปป์แบบนี้
+เติม newline ท้ายค่า ทำให้ค่าบน Cloudflare ไม่ตรงกับที่เก็บไว้ในเครื่อง
+แล้วจะได้ 401 ที่หาสาเหตุยากมาก (เสียเวลาไล่มาแล้ว)
+
+ใช้ `secret bulk` แทน ค่าจะตรงเป๊ะ:
+
+```powershell
+@{ INGEST_TOKEN = $token } | ConvertTo-Json -Compress | Set-Content secrets.json -Encoding ascii -NoNewline
+npx wrangler secret bulk secrets.json
+Remove-Item secrets.json
+```
+
+secret ใช้เวลา propagate ~10 วินาที ถ้าเทสต์ทันทีแล้วได้ 401 ให้รอแล้วลองใหม่ก่อนสรุปว่าพัง
+
+---
+
 ## ขอบเขต
 
 - สคริปต์นี้ **อ่านอย่างเดียว** ต่อ FusionSolar — มีแต่ GET ข้อมูล กับ POST ตอน login
