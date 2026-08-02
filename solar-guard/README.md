@@ -84,6 +84,16 @@ Kiosk ต่างออกไป หรือถ้าติดมิเตอ�
 > ✅ แต่ Kiosk มีประโยชน์จริงอย่างหนึ่ง: **เอา URL ไปเปิดค้างบนทีวีหน้าออฟฟิศได้เลยวันนี้**
 > ฟรี ไม่ต้องตั้งอะไร (แค่รู้ว่าใครมีลิงก์ก็เปิดดูได้ และ URL หมดอายุทุก 1 ปี)
 
+### หมายเหตุสำหรับเซสชัน Claude Code ในอนาคต
+
+โดยค่าเริ่มต้น cloud environment ของ Claude Code **เข้า `*.fusionsolar.huawei.com` ไม่ได้**
+(network access = Trusted ซึ่งอนุญาตเฉพาะ registry กับ GitHub) ทำให้ตรวจสอบข้อมูลจริงไม่ได้
+
+ถ้าต้องการให้เซสชันถัดไปดึงข้อมูลจาก FusionSolar ได้เอง ให้ตั้งที่ claude.ai/code:
+กดไอคอนคลาวด์เหนือกล่องข้อความ → แก้ environment → Network access เป็น **Custom** →
+ใส่ `*.fusionsolar.huawei.com` ในช่อง Allowed domains → **ติ๊ก "Also include default list
+of common package managers" ด้วย** (ไม่งั้น npm/GitHub จะใช้ไม่ได้) → แล้วเปิดเซสชันใหม่
+
 ---
 
 ## ค่าใช้จ่าย
