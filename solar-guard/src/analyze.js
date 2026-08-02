@@ -30,6 +30,7 @@ export function emptyState() {
     lastDemandAlertAt: 0,
     lastPeakAlertKw: 0,
     breachNotifiedMonth: '',
+    shedPauseUntil: 0, // คนสั่ง /restore ไว้ ระบบห้ามสั่งปิดซ้ำจนกว่าจะหมดเวลา (คนละตัวกับ mutedUntil)
     peakToday: { kw: 0, at: 0 },
     samples: [],
     lastError: null,
@@ -231,7 +232,10 @@ export function evaluate(prevState, sample, cfg, now = Date.now()) {
 export function evaluateDemand(prevState, { window, headroom, closed, sample }, cfg, now = Date.now()) {
   const state = { ...prevState };
   const events = [];
-  const muted = now < (state.mutedUntil || 0);
+
+  // หมายเหตุ: สายนี้ **ไม่สนใจ /mute** ตั้งใจให้เป็นแบบนั้น
+  // /mute มีไว้ปิดเสียงบ่นเรื่องค่าไฟรายวัน แต่เรื่องเพดาน 30 kW ผูกยาว 12 เดือน
+  // ปิดปากไม่ได้ ไม่งั้นวันที่กด mute ไว้แล้วเผลอชนเพดาน จะไม่มีใครรู้เลย
 
   // ---- 1) เดือนนี้โดนไปแล้ว: แจ้งครั้งเดียว ไม่ต้องตื่นตระหนกซ้ำ ----
   if (headroom.breached && state.breachNotifiedMonth !== headroom.monthKey) {
@@ -240,7 +244,7 @@ export function evaluateDemand(prevState, { window, headroom, closed, sample }, 
     return { state, events }; // เดือนนี้เสียหายไปแล้ว ตัดโหลดต่อไม่ช่วยเรื่องประเภทผู้ใช้ไฟ
   }
 
-  if (muted || headroom.breached) return { state, events };
+  if (headroom.breached) return { state, events };
 
   // ---- 2) หน้าต่างที่เพิ่งปิด ทำสถิติพีคใหม่ของเดือน ----
   for (const w of closed) {

@@ -9,7 +9,7 @@
 
 import { loadConfig } from './config.js';
 import { FusionSolar } from './fusionsolar.js';
-import { emptyState, evaluate, evaluateDemand } from './analyze.js';
+import { emptyState, evaluate, evaluateDemand, pickActions } from './analyze.js';
 import { emptyDemand, feedDemand, monthHeadroom, windowView } from './demand.js';
 import { decideShed, desiredMap, emptyShedState } from './autoshed.js';
 import { applyZone } from './drivers/index.js';
@@ -138,7 +138,7 @@ async function poll(env, cfg) {
 
   // ---- 1) คิดค่า demand ตามหน้าต่าง 15 นาทีของการไฟฟ้า ----
   const demandRes = feedDemand(prev.demand || emptyDemand(), now, sample.grid, cfg);
-  const headroom = monthHeadroom(demandRes.demand, cfg);
+  const headroom = monthHeadroom(demandRes.demand, cfg, demandRes.window.projectedKw);
 
   // ---- 2) สายที่หนึ่ง: เตือนคนเรื่องค่าไฟ (มีการหน่วงเวลากันเตือนหลอก) ----
   const { state, events, cause, demand15, actions } = evaluate(prev, sample, cfg, now);
@@ -151,6 +151,7 @@ async function poll(env, cfg) {
   state.headroom = headroom;
 
   // ---- 3) สายที่สอง: ป้องกันเพดานการไฟฟ้า (ไม่หน่วงเวลา) ----
+  const prevDemandAlertAt = prev.lastDemandAlertAt || 0;
   const demandEval = evaluateDemand(
     state,
     { window: demandRes.window, headroom, closed: demandRes.closed, sample },
@@ -158,7 +159,20 @@ async function poll(env, cfg) {
     now,
   );
   Object.assign(state, demandEval.state);
-  const allEvents = [...events, ...demandEval.events.map((e) => ({ ...e, actions }))];
+
+  // ข้อความเรื่องเพดานมีตัวเลขและรายการที่ต้องไปปิดครบกว่าสายค่าไฟอยู่แล้ว
+  // ถ้ากำลังอยู่ในช่วงเตือนเรื่องเพดาน ให้สายค่าไฟเงียบไปเลย — ไม่ใช่แค่รอบนี้
+  // ไม่งั้นรอบนี้ได้ข้อความเพดาน อีก 5 นาทีได้ข้อความค่าไฟที่บอกเรื่องเดียวกันซ้ำอีกใบ
+  const hasDemandAlert = demandEval.events.some((e) => e.type === 'demand_risk');
+  const demandAlertRecently = minutesBetween(now, prevDemandAlertAt) < cfg.repeatMin;
+  const comfortEvents =
+    hasDemandAlert || demandAlertRecently ? events.filter((e) => !['alert', 'repeat'].includes(e.type)) : events;
+
+  // รายการที่ให้คนไปปิดสำหรับข้อความสายเพดาน ต้องคิดจาก "ส่วนที่เกินเป้า demand"
+  // ห้ามใช้ actions ของสายค่าไฟ เพราะสายนั้นยังหน่วงเวลาอยู่ ตอนเตือนรอบแรกมันจะยังเป็นลิสต์ว่าง
+  // แล้วข้อความที่ด่วนที่สุดจะออกไปโดยไม่บอกใครว่าต้องทำอะไร
+  const demandActions = pickActions(cfg, Math.max(0, demandRes.window.projectedKw - cfg.demandTargetKw));
+  const allEvents = [...comfortEvents, ...demandEval.events.map((e) => ({ ...e, actions: demandActions }))];
 
   // ---- 4) ตัดโหลดอัตโนมัติ ----
   const shedRes = decideShed(
@@ -169,6 +183,8 @@ async function poll(env, cfg) {
       allowedRestKw: demandRes.window.allowedRestKw,
       remainMin: demandRes.window.remainMin,
       monthPeakKw: headroom.peakKw,
+      breached: headroom.breached,
+      paused: now < (state.shedPauseUntil || 0),
     },
     cfg,
     now,
@@ -271,7 +287,11 @@ async function handleTelegramWebhook(request, env, cfg) {
   if (cmd === '/mute') {
     const mins = Math.min(240, Math.max(5, Number(text.split(/\s+/)[1]) || 60));
     await writeState(env, { ...state, mutedUntil: now + mins * 60000 });
-    await sendTelegram(cfg, `🔕 ปิดเสียงเตือน ${mins} นาที (โดย ${escapeTg(name)})`, { silent: true });
+    await sendTelegram(
+      cfg,
+      `🔕 ปิดเสียงเตือนเรื่องค่าไฟ ${mins} นาที (โดย ${escapeTg(name)})\n\n<i>หมายเหตุ: การเตือนเรื่องเพดาน ${cfg.demandLimitKw} kW ยังทำงานอยู่ตามปกติ — ปิดไม่ได้ เพราะพลาดครั้งเดียวผูกยาว 12 เดือน</i>`,
+      { silent: true },
+    );
     return json({ ok: true });
   }
 
@@ -284,8 +304,9 @@ async function handleTelegramWebhook(request, env, cfg) {
       shed.zones[z.id] = { ...shed.zones[z.id], off: false, changedAt: now, reason: `เปิดกลับโดย ${name}` };
       if (cfg.autoshedMode === 'on') await applyZone(z, true, false);
     }
-    // กันระบบสั่งปิดซ้ำทันที ให้เวลาคนจัดการก่อน
-    await writeState(env, { ...state, shed, mutedUntil: now + 30 * 60000 });
+    // พักเฉพาะ "การสั่งปิดอัตโนมัติ" 30 นาที — ไม่ใช่ปิดปากการเตือนเพดาน
+    // (ถ้าไปตั้ง mutedUntil ตรงนี้ จะกลายเป็นว่ากด /restore แล้วระบบเงียบเรื่อง 30 kW ไปด้วย ซึ่งอันตราย)
+    await writeState(env, { ...state, shed, shedPauseUntil: now + 30 * 60000 });
     await sendTelegram(
       cfg,
       offZones.length
@@ -299,15 +320,15 @@ async function handleTelegramWebhook(request, env, cfg) {
   if (cmd === '/status' || cmd === '/สถานะ') {
     const s = state.samples?.[state.samples.length - 1];
     const icon = { green: '🟢 ปกติ', yellow: '🟡 เฝ้าระวัง', red: '🔴 ต้องลดโหลด' }[state.level] || '⚪ ไม่มีข้อมูล';
-    const h = monthHeadroom(state.demand || emptyDemand(), cfg);
     const w = state.window;
+    const h = monthHeadroom(state.demand || emptyDemand(), cfg, w?.projectedKw || 0);
     const offZones = (cfg.zones || []).filter((z) => state.shed?.zones?.[z.id]?.off);
     const body = s
       ? [
           icon,
           `ดึงไฟหลวง <b>${round1(s.grid)} kW</b> | โซลาร์ ${round1(s.pv)} kW | โหลด ${round1(s.load)} kW`,
           w ? `⏱ หน้าต่างนี้เหลือ ${w.remainMin} นาที คาดจบที่ <b>${round1(w.projectedKw)} kW</b>` : '',
-          `📅 พีคเดือนนี้ <b>${round1(h.peakKw)} kW</b> / เพดาน ${h.limitKw} kW — เหลือระยะ ${round1(h.headroomKw)} kW`,
+          `📅 พีคเดือนนี้ <b>${round1(h.livePeakKw)} kW</b> / เพดาน ${h.limitKw} kW — เหลือระยะ ${round1(h.headroomKw)} kW`,
           offZones.length ? `⛔ ถูกสั่งปิดอยู่: ${offZones.map((z) => escapeTg(z.name)).join(', ')}` : '',
           `ข้อมูลเมื่อ ${hhmm(s.t)} น.`,
         ]
@@ -349,9 +370,9 @@ async function publicState(env, cfg) {
   const stale = !last || minutesBetween(Date.now(), last.t) > STALE_MINUTES;
   const coveragePct = last && last.load > 0 ? Math.round(((last.load - Math.max(0, last.grid)) / last.load) * 100) : null;
   const demand = state.demand || emptyDemand();
-  const headroom = monthHeadroom(demand, cfg);
   // คิดหน้าต่างใหม่ ณ เวลาที่เรียก เพื่อให้ตัวเลข "เหลืออีกกี่นาที" ตรงกับความจริง
   const win = last && !stale ? windowView(demand, Date.now(), last.grid, cfg) : state.window || null;
+  const headroom = monthHeadroom(demand, cfg, win && !stale ? win.projectedKw : 0);
 
   return {
     level: stale ? 'unknown' : state.level,
@@ -376,7 +397,9 @@ async function publicState(env, cfg) {
         }
       : null,
     month: {
-      peakKw: r(headroom.peakKw),
+      peakKw: r(headroom.livePeakKw), // ตัวที่เอาไปโชว์ (รวมหน้าต่างที่กำลังเดินอยู่)
+      lockedPeakKw: r(headroom.peakKw), // ตัวที่ล็อกแล้วจากหน้าต่างที่ปิดไปแล้ว
+      liveIsCurrent: headroom.liveIsCurrent,
       peakAt: headroom.peakAt,
       limitKw: headroom.limitKw,
       headroomKw: r(headroom.headroomKw),

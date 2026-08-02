@@ -248,4 +248,36 @@ test('ไฟปกติ ไม่มีอะไรถูกปิด -> ไม
   assert.equal(res.needKw, 0);
 });
 
+console.log('\nการถอยของระบบตัดโหลด');
+
+test('เดือนนี้เกินเพดานไปแล้ว -> ห้ามตัดโหลดต่อ และต้องทยอยเปิดกลับ', () => {
+  const first = decideShed(emptyShedState(), ctxAt(40, 40, 5), cfg, W0);
+  assert.ok(first.actions.some((a) => a.to === 'off'), 'รอบแรกต้องมีการปิด');
+  // เดือนนี้ชนเพดานไปแล้ว ตัดต่อไม่ช่วยอะไร ปล่อยให้คนใช้แอร์ได้
+  const after = decideShed(first.shedState, { ...ctxAt(40, 40, 5), breached: true }, cfg, W0 + 12 * MIN);
+  assert.equal(after.actions.filter((a) => a.to === 'off').length, 0, 'ห้ามปิดเพิ่ม');
+  assert.equal(after.actions.filter((a) => a.to === 'on').length, 1, 'ต้องเริ่มเปิดกลับ');
+});
+
+test('คนกด /restore แล้ว ระบบห้ามสั่งปิดซ้ำระหว่างที่พักอยู่', () => {
+  const res = decideShed(emptyShedState(), { ...ctxAt(45, 45, 2), paused: true }, cfg, W0);
+  assert.equal(res.actions.filter((a) => a.to === 'off').length, 0);
+  assert.equal(res.needKw, 0);
+});
+
+test('ถึงจะถอย ก็ยังต้องกันคอมเพรสเซอร์ (ไม่เปิดกลับก่อนครบ MIN_OFF)', () => {
+  const first = decideShed(emptyShedState(), ctxAt(40, 40, 5), cfg, W0);
+  const after = decideShed(first.shedState, { ...ctxAt(40, 40, 5), breached: true }, cfg, W0 + 3 * MIN);
+  assert.equal(after.actions.length, 0, 'เพิ่งปิดไป 3 นาที ยังเปิดกลับไม่ได้');
+});
+
+console.log('\n/mute ต้องไม่ปิดปากการเตือนเพดาน');
+
+test('กด /mute ไว้ แต่ใกล้ชนเพดาน -> ยังต้องเตือน', () => {
+  const { window, demand, closed } = run([[0, 28], [1, 28]]);
+  const muted = { ...emptyState(), mutedUntil: W0 + 60 * MIN };
+  const res = evaluateDemand(muted, { window, headroom: monthHeadroom(demand, cfg), closed, sample: { grid: 28, pv: 0, load: 28 } }, cfg, W0 + MIN);
+  assert.equal(res.events.filter((e) => e.type === 'demand_risk').length, 1, 'mute ต้องไม่กลบเรื่องเพดาน');
+});
+
 console.log(`\n${pass} เทสต์ผ่าน${process.exitCode ? ' (มีบางข้อไม่ผ่าน)' : ' ทั้งหมด ✨'}\n`);

@@ -136,7 +136,7 @@ export function buildMessage(event, cfg, now = Date.now()) {
           ? `🎯 เวลาที่เหลือใช้ได้เฉลี่ยไม่เกิน <b>${kw(Math.max(0, w.allowedRestKw))}</b> เท่านั้น`
           : `⚠️ หน้าต่างนี้กำลังจะปิด`,
         '',
-        `📅 พีคของเดือนนี้ ${kw(h.peakKw)} / เพดาน ${kw(h.limitKw)} — เหลือระยะ <b>${kw(h.headroomKw)}</b>`,
+        `📅 พีคของเดือนนี้ ${kw(h.livePeakKw)}${h.liveIsCurrent ? ' (นับหน้าต่างที่กำลังเดินอยู่)' : ''} / เพดาน ${kw(h.limitKw)} — เหลือระยะ <b>${kw(h.headroomKw)}</b>`,
         '',
         `❗ ถ้าหน้าต่างไหนแตะ ${cfg.demandLimitKw} kW แม้ครั้งเดียว จะถูกย้ายไปค่าไฟประเภทที่ 3 นาน 12 เดือน`,
       ].join('\n');
@@ -205,7 +205,7 @@ export function buildMessage(event, cfg, now = Date.now()) {
         lines.join('\n'),
         '',
         `เหตุผล: คาดว่าหน้าต่าง 15 นาทีนี้จะจบที่ ${kw(event.window.projectedKw)} (เป้า ${kw(cfg.demandTargetKw)})`,
-        `📅 พีคเดือนนี้ ${kw(event.headroom.peakKw)} / เพดาน ${kw(event.headroom.limitKw)}`,
+        `📅 พีคเดือนนี้ ${kw(event.headroom.livePeakKw)} / เพดาน ${kw(event.headroom.limitKw)}`,
         '',
         `<i>ระบบจะเปิดกลับให้เองเมื่อไฟลงมาต่ำกว่า ${kw(cfg.demandRestoreKw)} หรือครบ ${cfg.autoshedMaxOffMin} นาที</i>`,
         `<i>ถ้าต้องการเปิดกลับทันที พิมพ์ /restore</i>`,

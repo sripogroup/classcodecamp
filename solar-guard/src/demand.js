@@ -154,16 +154,33 @@ export function windowView(d, t, powerNow, cfg) {
   };
 }
 
-/** เหลือระยะห่างเท่าไหร่ก่อนโดนย้ายประเภท */
-export function monthHeadroom(d, cfg) {
+/**
+ * เหลือระยะห่างเท่าไหร่ก่อนโดนย้ายประเภท
+ *
+ * @param currentWindowKw ค่าที่คาดว่าหน้าต่างที่กำลังเดินอยู่จะจบ (ใส่ 0 ถ้าไม่ทราบ)
+ *
+ * แยกสองตัวเลขโดยตั้งใจ:
+ *   peakKw     = พีคจากหน้าต่างที่ "ปิดไปแล้ว" — ตัวเลขที่ล็อกแล้ว แก้ไม่ได้
+ *   livePeakKw = รวมหน้าต่างที่กำลังเดินอยู่ด้วย — ตัวเลขที่ควรเอาไปโชว์
+ *
+ * ถ้าใช้ค่าปิดแล้วอย่างเดียวไปโชว์ จะเกิดข้อความประหลาดแบบ
+ * "ใกล้ชนเพดาน!" คู่กับ "เหลือระยะ 30 kW" ซึ่งขัดกันเองจนคนเลิกเชื่อ
+ *
+ * แต่ breached ต้องดูจากค่าที่ปิดแล้วเท่านั้น — ห้ามใช้ค่าพยากรณ์
+ * ไม่งั้นการพยากรณ์ที่พุ่งแวบเดียวจะทำให้ระบบคิดว่า "เดือนนี้เสียแล้ว" แล้วเลิกป้องกันทั้งเดือน
+ */
+export function monthHeadroom(d, cfg, currentWindowKw = 0) {
   const peak = d.monthPeakKw || 0;
+  const live = Math.max(peak, currentWindowKw || 0);
   return {
     peakKw: peak,
+    livePeakKw: live,
+    liveIsCurrent: live > peak,
     peakAt: d.monthPeakAt || 0,
     limitKw: cfg.demandLimitKw,
-    headroomKw: cfg.demandLimitKw - peak,
-    usedPct: Math.min(100, Math.round((peak / cfg.demandLimitKw) * 100)),
-    breached: peak >= cfg.demandLimitKw, // เดือนนี้โดนไปแล้ว
+    headroomKw: cfg.demandLimitKw - live,
+    usedPct: Math.min(100, Math.round((live / cfg.demandLimitKw) * 100)),
+    breached: peak >= cfg.demandLimitKw, // เดือนนี้โดนไปแล้ว (นับจากหน้าต่างที่ปิดแล้วเท่านั้น)
     monthKey: d.monthKey,
   };
 }

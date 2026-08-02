@@ -26,7 +26,7 @@ function zoneState(shed, id) {
  * ตัดสินใจว่าจะปิด/เปิดโซนไหนบ้าง
  *
  * @param shed   สถานะการตัดโหลดเดิม
- * @param ctx    { powerNow, projectedKw, allowedRestKw, remainMin, monthPeakKw }
+ * @param ctx    { powerNow, projectedKw, allowedRestKw, remainMin, monthPeakKw, breached, paused }
  * @param cfg    ค่าตั้ง
  * @returns { actions: [{id,name,to:'off'|'on',reason,kw}], needKw, shedState, desired }
  */
@@ -37,6 +37,24 @@ export function decideShed(shed, ctx, cfg, now = Date.now()) {
 
   if (cfg.autoshedMode === 'off' || !zones.length) {
     return { actions: [], needKw: 0, shedState: state, desired: desiredMap(state, zones), reason: 'ปิดการทำงานอยู่' };
+  }
+
+  // ---- ถอย: เดือนนี้เกินเพดานไปแล้ว หรือคนสั่งพักระบบไว้ ----
+  // ถ้าเดือนนี้ชนเพดานไปแล้ว การปิดแอร์ต่อไม่ช่วยเรื่องประเภทผู้ใช้ไฟอีกแล้ว
+  // (เริ่มนับใหม่เดือนหน้า) ปล่อยให้คนได้ใช้แอร์ตามปกติ ไม่ใช่ทรมานเขาฟรี ๆ ทั้งเดือน
+  if (ctx.breached || ctx.paused) {
+    const reason = ctx.breached ? 'เดือนนี้เกินเพดานไปแล้ว ตัดต่อไม่ช่วยอะไร' : 'คนสั่งพักระบบไว้';
+    for (const z of zones) {
+      const zs = zoneState(state, z.id);
+      if (!zs.off) continue;
+      if (minutesBetween(now, zs.changedAt) < cfg.autoshedMinOffMin) continue; // ยังต้องกันคอมเพรสเซอร์อยู่
+      if (minutesBetween(now, state.lastRestoreAt || 0) < cfg.autoshedRestoreGapMin) break;
+      state.zones[z.id] = { ...zs, off: false, changedAt: now, reason };
+      state.lastRestoreAt = now;
+      actions.push({ id: z.id, name: z.name, kw: z.kw, to: 'on', reason });
+      break; // เปิดกลับทีละโซนเหมือนเดิม
+    }
+    return { actions, needKw: 0, shedState: state, desired: desiredMap(state, zones), reason };
   }
 
   // ---- ต้องตัดกี่ kW ----
