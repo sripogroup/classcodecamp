@@ -14,6 +14,7 @@ import { emptyDemand, feedDemand, monthHeadroom, windowView } from './demand.js'
 import { decideShed, desiredMap, emptyShedState } from './autoshed.js';
 import { checkSchedule, emptyScheduleState } from './schedule.js';
 import { applyZone } from './drivers/index.js';
+import { fetchKiosk, flattenNumbers, guessFields, kioskApiUrl, readNowFromKiosk } from './kiosk.js';
 import { buildDailySummary, buildMessage } from './messages.js';
 import { sendTelegram, setTelegramWebhook } from './notify/telegram.js';
 import { sendEmail } from './notify/email.js';
@@ -71,6 +72,39 @@ export default {
       // เรียกรอบเก็บข้อมูลเองเพื่อทดสอบ (ดูผลเป็น JSON)
       if (path === '/api/poll') return json(await poll(env, cfg));
 
+      // ส่องดูว่า Kiosk View ให้ข้อมูลอะไรมาบ้างจริง ๆ
+      // มีไว้ตอบคำถามเดียว: "มีข้อมูลฝั่งซื้อไฟ/โหลดรวมด้วยไหม"
+      // ถ้ามี = ใช้ Kiosk แทนบัญชี Northbound API ได้เลย ถ้าไม่มี = ต้องใช้ Northbound API
+      if (path === '/api/probe-kiosk') {
+        const key = url.searchParams.get('kk') || cfg.kioskKey;
+        if (!key) return json({ ok: false, error: 'ยังไม่ได้ใส่ KIOSK_KEY (หรือส่งมาทาง ?kk=)' }, 400);
+
+        try {
+          const probeCfg = { ...cfg, kioskKey: key };
+          const { data } = await fetchKiosk(probeCfg);
+          const flat = flattenNumbers(data);
+          const guess = guessFields(flat);
+          return json({
+            ok: true,
+            url: kioskApiUrl(probeCfg),
+            สรุป: {
+              พบตัวเลขทั้งหมด: Object.keys(flat).length,
+              น่าจะเป็นฝั่งผลิต: guess.pv,
+              น่าจะเป็นฝั่งซื้อไฟ: guess.grid,
+              น่าจะเป็นโหลดรวม: guess.load,
+              ใช้ระบบนี้ได้ไหม:
+                guess.grid.length || guess.load.length
+                  ? '✅ น่าจะได้ — ดูค่าในตาราง fields ว่าตรงกับความจริงไหม แล้วตั้ง KIOSK_FIELD_MAP'
+                  : '❌ ไม่มีข้อมูลฝั่งใช้ไฟ ต้องใช้บัญชี Northbound API แทน',
+            },
+            fields: flat,
+            rawKeys: data && typeof data === 'object' ? Object.keys(data) : [],
+          });
+        } catch (err) {
+          return json({ ok: false, error: String(err?.message || err) }, 502);
+        }
+      }
+
       // ส่งข้อความทดสอบเข้ากลุ่ม เอาไว้เช็คว่าตั้ง Telegram ถูกไหม
       if (path === '/api/test-alert') {
         const tg = await sendTelegram(cfg, `🧪 <b>ทดสอบระบบแจ้งเตือน</b>\n${cfg.siteName} • ${hhmm()} น.\nถ้าเห็นข้อความนี้ แปลว่าตั้งค่าถูกแล้วครับ`);
@@ -102,13 +136,14 @@ async function poll(env, cfg) {
   const now = Date.now();
   const prev = await readState(env);
 
-  if (!cfg.fusionUser || !cfg.fusionPass) {
-    return { ok: false, error: 'ยังไม่ได้ตั้ง FUSION_USER / FUSION_SYSTEM_CODE' };
+  const useKiosk = cfg.dataSource === 'kiosk';
+  if (useKiosk ? !cfg.kioskKey : !cfg.fusionUser || !cfg.fusionPass) {
+    return { ok: false, error: useKiosk ? 'ยังไม่ได้ตั้ง KIOSK_KEY' : 'ยังไม่ได้ตั้ง FUSION_USER / FUSION_SYSTEM_CODE' };
   }
 
   let reading;
   try {
-    reading = await new FusionSolar(cfg, env.SOLAR_KV).readNow();
+    reading = useKiosk ? await readNowFromKiosk(cfg) : await new FusionSolar(cfg, env.SOLAR_KV).readNow();
   } catch (err) {
     const state = { ...prev, lastError: { at: now, message: String(err?.message || err) } };
     // เงียบมานานผิดปกติ -> บอกให้รู้ครั้งเดียว จะได้ไม่เข้าใจผิดว่า "ไม่มีข้อความ = ไม่มีปัญหา"
@@ -124,7 +159,10 @@ async function poll(env, cfg) {
   }
 
   if (!reading.meterFound || reading.gridImportKw === null) {
-    const state = { ...prev, lastError: { at: now, message: 'ไม่พบมิเตอร์ (Smart Power Sensor) ในระบบ — วัดไฟที่ซื้อจากการไฟฟ้าไม่ได้' } };
+    const why = useKiosk
+      ? 'Kiosk View ไม่ได้ให้ข้อมูลฝั่งซื้อไฟ/โหลดรวม — เรียก /api/probe-kiosk เพื่อดูว่ามีฟิลด์อะไรบ้าง'
+      : 'ไม่พบมิเตอร์ (Smart Power Sensor) ในระบบ — วัดไฟที่ซื้อจากการไฟฟ้าไม่ได้';
+    const state = { ...prev, lastError: { at: now, message: why } };
     await writeState(env, state);
     return { ok: false, error: state.lastError.message };
   }

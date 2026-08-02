@@ -21,6 +21,14 @@ export function loadConfig(env = {}) {
     fusionPass: str(env.FUSION_SYSTEM_CODE, ''),
     stationCode: str(env.FUSION_STATION_CODE, ''), // ว่างไว้ = ดึงโรงแรกอัตโนมัติ
 
+    // แหล่งข้อมูลทางเลือก: Kiosk View (ไม่ต้องใช้บัญชี Northbound API)
+    // kioskKey = ค่า kk= ที่อยู่ท้าย URL ของ Kiosk
+    // ใช้ได้ต่อเมื่อ Kiosk มีข้อมูลฝั่งใช้ไฟด้วย — เช็คด้วย /api/probe-kiosk ก่อน
+    dataSource: ['api', 'kiosk'].includes(str(env.DATA_SOURCE, 'api')) ? str(env.DATA_SOURCE, 'api') : 'api',
+    kioskKey: str(env.KIOSK_KEY, ''),
+    kioskBase: str(env.KIOSK_BASE, ''),
+    kioskFieldMap: parseJsonObject(env.KIOSK_FIELD_MAP, {}),
+
     // ทิศทางของมิเตอร์ (Smart Power Sensor)
     // 1  = ค่าบวกคือ "ซื้อไฟจากการไฟฟ้า"
     // -1 = ค่าบวกคือ "ขายไฟออก"  (ถ้าตอนกลางคืนขึ้นเป็นลบ ให้ใช้ -1)
@@ -142,6 +150,16 @@ export function loadConfig(env = {}) {
   };
 
   return cfg;
+}
+
+function parseJsonObject(raw, fallback) {
+  if (!raw) return fallback;
+  try {
+    const v = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 function parseJson(raw, fallback) {
