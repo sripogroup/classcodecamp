@@ -91,7 +91,7 @@ ZONES = '[{"id":"ac_office2","name":"แอร์ออฟฟิศชั้น 
 # กันสแปม
 REPEAT_MIN = "30"
 ESCALATE_MIN = "20"
-ACK_SUPPRESS_MIN = "60"
+ACK_SUPPRESS_MIN = "20"
 
 # เวลาทำงาน (0 = อาทิตย์)
 WORK_START_HOUR = "8"
@@ -114,9 +114,9 @@ NIGHT_START_HOUR = "18"
 NIGHT_IDLE_KW = "3"
 
 # ค่าไฟ
-TARIFF_ON_PEAK = "4.5"
-TARIFF_OFF_PEAK = "2.8"
-USE_TOU = "false"
+TARIFF_ON_PEAK = "4.6504"
+TARIFF_OFF_PEAK = "2.9596"
+USE_TOU = "true"
 
 # รายการอุปกรณ์ที่ให้พนักงานไปปิด เรียงตาม kW ที่ลดได้
 LOAD_SHED_LIST = '[{"name":"แอร์ออฟฟิศชั้น 2","kw":12,"owner":"ธุรการ"},{"name":"แอร์ห้องประชุม (ถ้าไม่มีประชุม)","kw":6,"owner":"ธุรการ"},{"name":"ปั๊มน้ำสำรอง","kw":7,"owner":"ช่างซ่อมบำรุง"},{"name":"เลื่อนเดินคอมเพรสเซอร์ตัวที่ 2","kw":15,"owner":"หัวหน้ากะ"}]'

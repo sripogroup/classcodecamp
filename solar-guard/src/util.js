@@ -73,3 +73,18 @@ export const round1 = (n) => Math.round((Number(n) || 0) * 10) / 10;
 export const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 export const minutesBetween = (a, b) => Math.abs(a - b) / 60000;
 export const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
+
+/**
+ * ช่วงที่เครื่องอ่านในโรงงานปิดแน่นอน (เช่น ตี 3 ถึง 7 โมงครึ่ง)
+ *
+ * ช่วงนี้ข้อมูลขาดเป็นเรื่องปกติ ไม่ใช่ความผิดปกติ ถ้าเตือนทุกคืนคนจะชิน
+ * แล้วเลิกอ่าน ซึ่งอันตรายกว่าไม่เตือนเลย รองรับค่าที่มีจุดทศนิยม (7.5 = 07:30)
+ */
+export function isQuietHours(cfg, ts = Date.now()) {
+  const t = thTime(ts);
+  const h = t.hour + t.minute / 60;
+  const a = cfg.quietStartHour;
+  const b = cfg.quietEndHour;
+  if (a === b) return false;
+  return a > b ? h >= a || h < b : h >= a && h < b;
+}

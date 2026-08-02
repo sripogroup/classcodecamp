@@ -20,7 +20,7 @@ import { setTelegramWebhook } from './notify/telegram.js';
 import { sendChat } from './notify/chat.js';
 import { sendEmail } from './notify/email.js';
 import { dashboardHtml } from './dashboard.js';
-import { hhmm, minutesBetween, round1, thDateKey } from './util.js';
+import { hhmm, isQuietHours, minutesBetween, round1, thDateKey } from './util.js';
 
 const STATE_KEY = 'state';
 const STALE_MINUTES = 20; // ไม่ได้ข้อมูลนานเกินนี้ = ถือว่าระบบเงียบ
@@ -297,7 +297,8 @@ async function poll(env, cfg, injected = null) {
   } catch (err) {
     const state = { ...prev, lastError: { at: now, message: String(err?.message || err) } };
     // เงียบมานานผิดปกติ -> บอกให้รู้ครั้งเดียว จะได้ไม่เข้าใจผิดว่า "ไม่มีข้อความ = ไม่มีปัญหา"
-    if (prev.lastOkAt && minutesBetween(now, prev.lastOkAt) >= 60 && minutesBetween(now, prev.lastSilenceAlertAt || 0) >= 180) {
+    // ตี 3 ถึง 7 โมงครึ่ง เครื่องอ่านปิดแน่นอน ขาดข้อมูลช่วงนั้นไม่ใช่ความผิดปกติ
+    if (!isQuietHours(cfg, now) && prev.lastOkAt && minutesBetween(now, prev.lastOkAt) >= 60 && minutesBetween(now, prev.lastSilenceAlertAt || 0) >= 180) {
       state.lastSilenceAlertAt = now;
       await sendChat(
         cfg,
@@ -516,21 +517,11 @@ async function handleTelegramWebhook(request, env, cfg) {
   const cmd = text.split(/[\s@]/)[0].toLowerCase();
 
   if (cmd === '/ack' || cmd === '/รับทราบ') {
-    await writeState(env, { ...state, ackAt: now, ackBy: name });
+    await writeState(env, { ...state, ackAt: now, ackBy: name, ackAtKw: state.samples?.[state.samples.length - 1]?.grid || 0 });
     await sendChat(cfg, `👍 รับทราบแล้วโดย <b>${escapeTg(name)}</b> — ระบบจะหยุดเตือนซ้ำ ${cfg.ackSuppressMin} นาที\nถ้าไฟหลวงยังเข้าหนักหลังจากนั้น จะเตือนใหม่อีกครั้ง`, { silent: true });
     return json({ ok: true });
   }
 
-  if (cmd === '/mute') {
-    const mins = Math.min(240, Math.max(5, Number(text.split(/\s+/)[1]) || 60));
-    await writeState(env, { ...state, mutedUntil: now + mins * 60000 });
-    await sendChat(
-      cfg,
-      `🔕 ปิดเสียงเตือนเรื่องค่าไฟ ${mins} นาที (โดย ${escapeTg(name)})\n\n<i>หมายเหตุ: การเตือนเรื่องเพดาน ${cfg.demandLimitKw} kW ยังทำงานอยู่ตามปกติ — ปิดไม่ได้ เพราะพลาดครั้งเดียวผูกยาว 12 เดือน</i>`,
-      { silent: true },
-    );
-    return json({ ok: true });
-  }
 
   // แจ้งว่าทำงานประจำเรียบร้อยแล้ว (เผื่อระบบวัดโหลดไม่ทัน หรือปิดอย่างอื่นแทน)
   if (cmd === '/done' || cmd === '/ปิดแล้ว') {
@@ -603,7 +594,13 @@ async function handleTelegramWebhook(request, env, cfg) {
   if (cmd === '/help' || cmd === '/start') {
     await sendChat(
       cfg,
-      `🤖 <b>คำสั่งที่ใช้ได้</b>\n/status — ดูสถานะตอนนี้ + พีคของเดือน\n/done — แจ้งว่าปิดแอร์ตามรอบแล้ว\n/ack — แจ้งว่ารับเรื่องแล้ว (หยุดเตือนซ้ำ ${cfg.ackSuppressMin} นาที)\n/restore — เปิดอุปกรณ์ที่ระบบสั่งปิดกลับทั้งหมด\n/mute 60 — ปิดเสียงเตือนชั่วคราว (นาที)`,
+      `🤖 <b>คำสั่งที่ใช้ได้</b>
+/status — ดูสถานะตอนนี้ + สูงสุดของเดือน
+/done — แจ้งว่าปิดแอร์ตามรอบแล้ว
+/ack — รับเรื่องแล้ว กำลังไปจัดการ (หยุดย้ำซ้ำ ${cfg.ackSuppressMin} นาที แต่ถ้าไฟหลวงยังไต่ขึ้นจะเตือนใหม่ทันที)
+/restore — เปิดอุปกรณ์ที่ระบบสั่งปิดกลับทั้งหมด
+
+<i>ไม่มีคำสั่งปิดเสียง — ระบบนี้เงียบไม่ได้ เพราะพลาดครั้งเดียวผูกยาว 12 เดือน</i>`,
       { silent: true },
     );
     return json({ ok: true });

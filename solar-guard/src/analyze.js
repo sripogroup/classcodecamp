@@ -21,6 +21,7 @@ export function emptyState() {
     lastSentLevel: null,
     lastSentAt: 0,
     ackAt: 0,
+    ackAtKw: 0, // ไฟหลวงตอนที่กด ack ใช้เช็คว่าหลังจากนั้นแย่ลงหรือเปล่า
     ackBy: '',
     mutedUntil: 0,
     lastBossAt: 0,
@@ -161,7 +162,22 @@ export function evaluate(prevState, sample, cfg, now = Date.now()) {
 
   // ---------- 4) ตัดสินใจว่าจะส่งอะไร ----------
   const muted = now < (state.mutedUntil || 0);
-  const acked = state.ackAt > 0 && minutesBetween(now, state.ackAt) < cfg.ackSuppressMin;
+
+  // /ack แปลว่า "รับเรื่องแล้ว กำลังไปจัดการ" ไม่ได้แปลว่า "แก้เรียบร้อยแล้ว"
+  //
+  // ถ้าไปปิดแอร์ตัวเดียวแล้วยังไม่พอ ไฟหลวงจะไต่ขึ้นต่อ การเงียบไปตามเวลาที่
+  // ตั้งไว้จะทำให้ไม่มีใครรู้ว่าต้องไปปิดเพิ่ม กว่าจะรู้ตัวก็ชนเพดานแล้ว
+  // ดังนั้นการ ack จะถูกยกเลิกทันทีที่ไฟหลวงสูงกว่าตอนที่กด ack เกินเกณฑ์
+  const ackWindow = state.ackAt > 0 && minutesBetween(now, state.ackAt) < cfg.ackSuppressMin;
+  const worseSinceAck = state.ackAtKw > 0 && grid > state.ackAtKw + cfg.ackReAlertKw;
+  const acked = ackWindow && !worseSinceAck;
+  if (worseSinceAck) {
+    // ล้างทิ้งเลย ไม่ให้ย้อนกลับมาเงียบอีกเมื่อค่าแกว่งลงชั่วคราว
+    state.ackAt = 0;
+    state.ackBy = '';
+    state.ackAtKw = 0;
+  }
+
   const inWork = isWorkTime(cfg, now);
 
   if (!muted) {

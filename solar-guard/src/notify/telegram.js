@@ -40,7 +40,6 @@ const COMMANDS = [
   { command: 'ack', description: 'รับเรื่องแล้ว กำลังไปจัดการ' },
   { command: 'done', description: 'ปิดแอร์ตามรอบแล้ว' },
   { command: 'restore', description: 'เปิดอุปกรณ์ที่ถูกสั่งปิดกลับ' },
-  { command: 'mute', description: 'ปิดเสียงเตือนชั่วคราว เช่น /mute 60' },
   { command: 'help', description: 'ดูคำสั่งทั้งหมด' },
 ];
 

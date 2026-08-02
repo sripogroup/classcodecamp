@@ -157,6 +157,16 @@ export function loadConfig(env = {}) {
     // ใช้ตรวจลายเซ็นของ webhook ที่ LINE ส่งมา ถ้าไม่ตั้งจะรับทุก request
     // ที่ยิงเข้ามาโดยไม่พิสูจน์ว่ามาจาก LINE จริง — ควรตั้งเสมอ
     lineChannelSecret: str(env.LINE_CHANNEL_SECRET, ''),
+
+    // ---------- ช่วงที่เครื่องอ่านปิดแน่นอน ----------
+    // เครื่องในโรงงานปิดทุกคืน ระบบจะขาดข้อมูลเป็นเรื่องปกติ ไม่ใช่ความผิดปกติ
+    // ถ้าเตือนทุกคืนคนจะชินแล้วเลิกอ่าน ซึ่งอันตรายกว่าไม่เตือน
+    quietStartHour: num(env.QUIET_START_HOUR, 3), // 03:00
+    quietEndHour: num(env.QUIET_END_HOUR, 7.5), // 07:30
+
+    // ไฟหลวงสูงกว่าตอนกด /ack เกินกี่ kW ถึงจะถือว่า "ที่ทำไปยังไม่พอ"
+    // แล้วกลับมาเตือนใหม่ทันที ไม่รอให้ครบ ackSuppressMin
+    ackReAlertKw: num(env.ACK_REALERT_KW, 1),
     telegramWebhookSecret: str(env.TELEGRAM_WEBHOOK_SECRET, ''),
 
     resendApiKey: str(env.RESEND_API_KEY, ''),
