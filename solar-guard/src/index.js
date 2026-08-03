@@ -747,9 +747,31 @@ async function handleTelegramWebhook(request, env, cfg) {
   const now = Date.now();
   const cmd = text.split(/[\s@]/)[0].toLowerCase();
 
+  /**
+   * ตอบกลับห้องที่พิมพ์มาเสมอ — คนพิมพ์คำสั่งคือคนที่กำลังรอคำตอบอยู่หน้าจอ
+   *
+   * ไม่เกี่ยวกับกฎ "นอกเวลางานไม่กวนกลุ่ม" เพราะนั่นคือระบบเป็นฝ่ายทัก
+   * ส่วนอันนี้คนเป็นฝ่ายถามเอง จะกี่โมงก็ต้องได้คำตอบกลับที่เดิม
+   */
+  const chatId = update?.message?.chat?.id;
+  const isGroup = update?.message?.chat?.type?.includes('group');
+  const reply = (body, opts) => replyTelegram(cfg, chatId, body, opts);
+
+  /**
+   * คำสั่งที่คนอื่นควรรู้ด้วย (/ack /done /restore)
+   *
+   * ตอบกลับห้องที่พิมพ์เสมอ และถ้าพิมพ์มาจากห้องส่วนตัวก็ประกาศเข้ากลุ่มด้วย
+   * ไม่งั้นคนในกลุ่มจะไม่รู้ว่ามีคนรับเรื่องไปแล้ว แล้วก็จะไปทำซ้ำกัน
+   * — เว้นนอกเวลางาน ที่ตอนนั้นไม่มีใครอยู่ให้ต้องบอกอยู่แล้ว
+   */
+  const announce = async (body) => {
+    await reply(body, { silent: true });
+    if (!isGroup && isStaffHours(cfg, now)) await sendChat(cfg, body, { silent: true });
+  };
+
   if (cmd === '/ack' || cmd === '/รับทราบ') {
     await writeState(env, { ...state, ackAt: now, ackBy: name, ackAtKw: state.samples?.[state.samples.length - 1]?.grid || 0 });
-    await sendChat(cfg, `👍 รับทราบแล้วโดย <b>${escapeTg(name)}</b> — ระบบจะหยุดเตือนซ้ำ ${cfg.ackSuppressMin} นาที\nถ้าไฟหลวงยังเข้าหนักหลังจากนั้น จะเตือนใหม่อีกครั้ง`, { silent: true });
+    await announce(`👍 รับทราบแล้วโดย <b>${escapeTg(name)}</b> — ระบบจะหยุดเตือนซ้ำ ${cfg.ackSuppressMin} นาที\nถ้าไฟหลวงยังเข้าหนักหลังจากนั้น จะเตือนใหม่อีกครั้ง`);
     return json({ ok: true });
   }
 

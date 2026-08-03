@@ -50,6 +50,37 @@ export async function sendTelegram(cfg, text, { toBoss = false, silent = false, 
   return { ok: results.some((r) => r.ok), results };
 }
 
+/**
+ * ตอบกลับเข้าห้องที่พิมพ์คำสั่งมา
+ *
+ * ต่างจาก sendTelegram ตรงที่ไม่สนใจว่าห้องนั้นคือกลุ่มพนักงานหรือของหัวหน้า
+ * — ใครพิมพ์มาจากไหน ตอบกลับที่นั่น
+ *
+ * ก่อนหน้านี้คำสั่งทุกตัวตอบผ่าน sendTelegram ซึ่งยิงเข้ากลุ่มเสมอ แปลว่า
+ * ถ้าพิมพ์ /status ในห้องส่วนตัว คำตอบจะไปโผล่ในกลุ่มพนักงานแทน คนถามนั่งรอ
+ * หน้าจอเปล่า ๆ แล้วนึกว่าบอทตาย (เจอจริงคืน 3 ส.ค. 69)
+ */
+export async function replyTelegram(cfg, chatId, text, { silent = false } = {}) {
+  if (!cfg.telegramToken || !chatId) return { ok: false, skipped: 'ไม่มีโทเคนหรือห้องปลายทาง' };
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${cfg.telegramToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        parse_mode: 'HTML',
+        disable_web_page_preview: true,
+        disable_notification: silent,
+      }),
+    });
+    const body = await res.json().catch(() => null);
+    return { ok: !!body?.ok, error: body?.description };
+  } catch (err) {
+    return { ok: false, error: String(err?.message || err) };
+  }
+}
+
 /** รายการคำสั่งที่ให้ Telegram แสดงเป็นเมนูตอนพิมพ์ "/" ในกลุ่ม */
 const COMMANDS = [
   { command: 'status', description: 'ดูสถานะตอนนี้ + สูงสุดของเดือน' },
