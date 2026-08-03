@@ -91,6 +91,27 @@ export class Store {
     return out.map((x) => x.row);
   }
 
+  /** ทุกจุดในช่วงที่ระบุ ไม่บีบ — ใช้ตอนสร้างสถิติของเดือนใหม่ */
+  all(fromMs, toMs = Infinity) {
+    return this._range.all(Math.round(fromMs)).filter((r) => r.t <= toMs);
+  }
+
+  /**
+   * หาช่วงที่ข้อมูลขาด
+   *
+   * เครื่องนี้ปิดตัวเองทุกคืนตี 3 (task AutoShutdown_0300) แล้วเปิดใหม่ตอนเช้า
+   * จึงมีรูในข้อมูลทุกวัน ตัวนี้บอกว่ารูอยู่ตรงไหนบ้าง จะได้ไปดึงจากพอร์ทัลมาเติม
+   */
+  gaps(fromMs, minGapMin = 20) {
+    const rows = this._range.all(Math.round(fromMs));
+    const out = [];
+    for (let i = 1; i < rows.length; i++) {
+      const mins = (rows[i].t - rows[i - 1].t) / 60000;
+      if (mins >= minGapMin) out.push({ from: rows[i - 1].t, to: rows[i].t, minutes: Math.round(mins) });
+    }
+    return out;
+  }
+
   /** ลบประวัติที่เก่ากว่ากี่วัน — กันไฟล์โตไม่มีที่สิ้นสุด */
   prune(days = 400) {
     this._prune.run(Date.now() - days * 86400000);

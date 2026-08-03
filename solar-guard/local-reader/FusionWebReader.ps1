@@ -131,6 +131,11 @@ param(
     # through /api/ingest would text the staff about events already over.
     [switch]$PushBackfill,
 
+    # With -From/-To: write the day curves to a CSV instead of (or as well as)
+    # pushing them. The local Node server imports this on startup to fill the
+    # gap left by the nightly 03:00 auto-shutdown.
+    [string]$CsvOut,
+
     [string]$LogFile,
 
     # Read and record, but do not send anywhere. Lets data collection start
@@ -713,6 +718,26 @@ if ($From) {
         $maxL = if ($load) { MaxOf $load } else { 0 }
         $maxP = if ($pv) { MaxOf $pv } else { 0 }
         $kwh = $sumG * ($minPer / 60.0)
+
+        # Write the day curve out as CSV, same columns the reader logs use, so
+        # server/backfill.js can eat it without a special case.
+        if ($CsvOut) {
+            if (-not (Test-Path $CsvOut)) {
+                Set-Content -Path $CsvOut -Value "timestamp,pv_kw,grid_kw,load_kw" -Encoding utf8
+            }
+            $lines = New-Object System.Collections.ArrayList
+            for ($i = 0; $i -lt $n; $i++) {
+                $g = 0.0; $l = 0.0; $p = 0.0
+                $okG = [double]::TryParse([string]$grid[$i], [ref]$g)
+                if (-not $okG) { continue }
+                if ($load -and $i -lt $load.Count) { [void][double]::TryParse([string]$load[$i], [ref]$l) }
+                if ($pv -and $i -lt $pv.Count) { [void][double]::TryParse([string]$pv[$i], [ref]$p) }
+                $stamp = $d.Date.AddMinutes($i * $minPer).ToString("yyyy-MM-dd HH:mm:ss")
+                # F3 not N3 - "N" adds thousands separators and splits the CSV column
+                [void]$lines.Add(("{0},{1:F3},{2:F3},{3:F3}" -f $stamp, $p, $g, $l))
+            }
+            if ($lines.Count) { Add-Content -Path $CsvOut -Value $lines.ToArray() -Encoding utf8 }
+        }
 
         # Timestamps: the portal returns one flat array covering the whole Thai
         # day, so sample i sits at localMidnight + i * minPer. Thailand is a

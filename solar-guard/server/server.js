@@ -323,11 +323,27 @@ const server = http.createServer(async (req, res) => {
       return send(200, viewState(store.readState() || emptyState(), cfg));
     }
     if (url.pathname === '/api/history') {
-      const hours = Number(url.searchParams.get('hours')) || 24;
+      // ค่าเริ่มต้น = ตั้งแต่เที่ยงคืนของวันไทย ไม่ใช่ย้อนหลัง 24 ชั่วโมงแบบเลื่อนไปเรื่อย ๆ
+      //
+      // แบบเลื่อนทำให้แกนเวลาขยับตลอด ดูวันนี้เทียบวันก่อนไม่ได้ และช่วงเช้ามืด
+      // ของเมื่อวานจะปนเข้ามาในกราฟของวันนี้ ซึ่งอ่านแล้วสับสน
+      // ระบุ ?day=YYYY-MM-DD เพื่อดูวันย้อนหลัง หรือ ?hours=N เพื่อดูแบบเลื่อน
+      const dayParam = url.searchParams.get('day');
+      const hours = Number(url.searchParams.get('hours'));
+
+      let from;
+      let to = null;
+      if (Number.isFinite(hours) && hours > 0) {
+        from = Date.now() - hours * 3600000;
+      } else {
+        from = thaiMidnight(dayParam);
+        to = from + 86400000;
+      }
+
       // ต้องห่อด้วย { samples: [...] } ให้ตรงกับที่ฝั่งคลาวด์ส่ง
       // หน้าจอใช้ไฟล์เดียวกันทั้งสองฝั่ง และมันอ่าน hist.samples
-      // ตอนแรกส่งเป็นอาร์เรย์เปล่า ๆ กราฟเลยว่างทั้งที่ข้อมูลมีครบ 563 จุด
-      return send(200, { samples: store.history(Date.now() - hours * 3600000) });
+      const rows = store.history(from).filter((r) => !to || r.t < to);
+      return send(200, { samples: rows, dayStart: to ? from : null });
     }
     if (url.pathname === '/api/health') {
       return send(200, { ok: true, inverter: inv.connected, fails: consecutiveFails, db: store.stats() });
