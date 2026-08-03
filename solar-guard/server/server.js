@@ -410,8 +410,14 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.pathname === '/api/loads/start' && req.method === 'POST') {
       const body = await readJson(req);
-      const t = zones.start(String(body.zone || ''));
+      const t = zones.start(String(body.zone || ''), { preRunning: !!body.preRunning });
       return send(200, { ok: true, test: t });
+    }
+    if (url.pathname === '/api/loads/confirm' && req.method === 'POST') {
+      const body = await readJson(req);
+      const result = zones.confirm(body.id);
+      const n = applyShedList();
+      return send(200, { ok: true, result, shedCount: n });
     }
     if (url.pathname === '/api/loads/stop' && req.method === 'POST') {
       const body = await readJson(req);
@@ -426,13 +432,39 @@ const server = http.createServer(async (req, res) => {
       const now = Date.now();
       const from = now - Number(b.fromMinAgo || 0) * 60000;
       const to = now - Number(b.toMinAgo || 0) * 60000;
-      const result = zones.record(String(b.zone || ''), from, to, String(b.note || ''));
+      const result = zones.record(String(b.zone || ''), from, to, String(b.note || ''), !!b.preRunning);
       const n = applyShedList();
       return send(200, { ok: true, result, shedCount: n });
     }
     if (url.pathname === '/api/loads/cancel' && req.method === 'POST') {
       return send(200, { ok: true, cancelled: zones.cancel() });
     }
+    // ---- จัดการรายการโซน (เพิ่ม/แก้/เอาออก/เลื่อนลำดับ) ----
+    // โรงงานซื้อของเพิ่มได้ตลอด รายการจึงต้องแก้ได้จากหน้าจอ ไม่ใช่ต้องมาแก้โค้ด
+    if (url.pathname === '/api/loads/zone' && req.method === 'POST') {
+      const zone = zones.saveZone(await readJson(req));
+      applyShedList();
+      return send(200, { ok: true, zone });
+    }
+    if (url.pathname === '/api/loads/zone/remove' && req.method === 'POST') {
+      const b = await readJson(req);
+      zones.removeZone(String(b.slug || ''));
+      applyShedList();
+      return send(200, { ok: true });
+    }
+    if (url.pathname === '/api/loads/zone/restore' && req.method === 'POST') {
+      const b = await readJson(req);
+      const zone = zones.restoreZone(String(b.slug || ''));
+      applyShedList();
+      return send(200, { ok: true, zone });
+    }
+    if (url.pathname === '/api/loads/zone/move' && req.method === 'POST') {
+      const b = await readJson(req);
+      zones.moveShedOrder(String(b.slug || ''), b.dir === 'up' ? 'up' : 'down');
+      applyShedList();
+      return send(200, { ok: true });
+    }
+
     if (url.pathname === '/api/loads/history') {
       const z = url.searchParams.get('zone');
       return send(200, { ok: true, tests: z ? zones.history(z) : [] });

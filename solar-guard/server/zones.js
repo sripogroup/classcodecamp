@@ -109,6 +109,18 @@ export function initZoneTables(db) {
     );
   `);
 
+  // เพิ่มคอลัมน์ทีหลังแบบไม่ทำลายของเดิม (SQLite ไม่มี ADD COLUMN IF NOT EXISTS)
+  //
+  // base_mode = เทียบกับอะไร
+  //   auto  ค่าก่อนกดเริ่ม 90 วินาที — ใช้เมื่อกดเริ่มก่อนแล้วค่อยไปเปิดเครื่อง
+  //   fixed ค่าที่ระบุมา — ใช้เมื่อเครื่องเปิดค้างอยู่ก่อนแล้วค่อยมากด ซึ่งกรณีนั้น
+  //         ค่าก่อนกดเริ่มมีโหลดตัวที่กำลังจะวัดรวมอยู่แล้ว เทียบไปก็ได้ศูนย์
+  // confirmed = คนยืนยันเองว่าผลนี้ใช้ได้ แม้ระบบจะคิดว่าข้อมูลสั้นไป
+  const cols = db.prepare('PRAGMA table_info(zone_tests)').all().map((c) => c.name);
+  if (!cols.includes('base_mode')) db.exec("ALTER TABLE zone_tests ADD COLUMN base_mode TEXT NOT NULL DEFAULT 'auto'");
+  if (!cols.includes('base_kw')) db.exec('ALTER TABLE zone_tests ADD COLUMN base_kw REAL');
+  if (!cols.includes('confirmed')) db.exec('ALTER TABLE zone_tests ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 0');
+
   const n = db.prepare('SELECT count(*) c FROM zone_defs').get().c;
   if (n === 0) {
     const ins = db.prepare(`INSERT INTO zone_defs
@@ -172,7 +184,13 @@ export function computeTest(store, test, zone = null) {
   const baseBefore = median(before);
   const baseAfter = after.length >= 6 ? median(after) : null;
   // ถ้าไม่มีข้อมูลก่อนหน้าเลย (เพิ่งเปิดเครื่อง) ใช้จุดต่ำสุดในช่วงแทน ดีกว่าไม่มีอะไรเลย
-  const base = baseBefore ?? (inWin.length ? Math.min(...inWin.map((r) => r.load)) : 0);
+  const autoBase = baseBefore ?? (inWin.length ? Math.min(...inWin.map((r) => r.load)) : 0);
+
+  // เปิดเครื่องค้างไว้ก่อนแล้วค่อยมากดวัด = ค่าก่อนกดเริ่มมีโหลดตัวนั้นรวมอยู่แล้ว
+  // เทียบกับมันตรง ๆ จะได้ศูนย์ทุกครั้ง จึงต้องเทียบกับเส้นฐานที่บันทึกไว้แทน
+  const fixedBase = test.base_mode === 'fixed' && test.base_kw !== null && test.base_kw !== undefined
+    ? Number(test.base_kw) : null;
+  const base = fixedBase ?? autoBase;
 
   const loads = inWin.map((r) => r.load);
   const durationSec = Math.round((to - from) / 1000);
@@ -187,15 +205,20 @@ export function computeTest(store, test, zone = null) {
   const steadyAbs = median(tail);
   const avgAbs = mean(loads);
 
-  // โซนเส้นฐาน (ไฟส่องสว่าง) ไม่ต้องลบอะไร ตัวมันเองคือฐาน
-  const isBase = !!zone?.baseline;
+  // โซนเส้นฐานตัวแรก (ไฟส่องสว่างออฟฟิศที่เปิดตอนไม่มีอะไรอื่นเลย) ไม่ต้องลบอะไร
+  // แต่ถ้าระบุเส้นฐานมาเอง แปลว่ามีของอื่นเปิดอยู่ด้วย ต้องลบออกเหมือนโซนทั่วไป
+  const isBase = !!zone?.baseline && fixedBase === null;
   const sub = (v) => (v === null ? null : round2(isBase ? v : v - base));
 
   const drift = baseAfter === null || baseBefore === null ? null : round2(baseAfter - baseBefore);
 
+  // เปิดค้างมาก่อนแล้ว = ไม่มีช่วงกินไฟสูงตอนสตาร์ทให้ต้องรอ เวลาสั้นจึงไม่ใช่ปัญหา
+  const preRunning = fixedBase !== null;
+  const confirmed = !!test.confirmed;
+
   const warnings = [];
   if (inWin.length < MIN_SAMPLES) warnings.push(`ข้อมูลน้อยไป (${inWin.length} จุด) — เปิดค้างให้นานกว่านี้`);
-  if (zone && durationSec < zone.minutes * 60 * 0.8) {
+  if (!preRunning && zone && durationSec < zone.minutes * 60 * 0.8) {
     warnings.push(`เปิดไม่ครบเวลาที่แนะนำ (${Math.round(durationSec / 60)} จาก ${zone.minutes} นาที) ค่าอาจสูงกว่าจริง`);
   }
   if (drift !== null && Math.abs(drift) > DRIFT_WARN_KW) {
@@ -210,15 +233,19 @@ export function computeTest(store, test, zone = null) {
   // การวัดที่จบแล้วแต่ข้อมูลน้อยเกินไปหรือได้ค่าติดลบ (ลืมเปิดเครื่อง เปิดผิดตัว
   // หรือมีอย่างอื่นปิดไประหว่างนั้น) ต้องไม่ถูกนับว่าโซนนั้นวัดเสร็จแล้ว
   // ไม่งั้นหน้าจอจะบอกว่าครบแล้วทั้งที่ตัวเลขใช้ไม่ได้ แล้วไม่มีใครกลับมาวัดซ้ำ
-  const usable = inWin.length >= MIN_SAMPLES
-    && typeof steadyAbs === 'number'
-    && (isBase ? steadyAbs > 0.1 : steadyAbs - base > 0.1);
+  // คนกดยืนยันเองได้ ระบบไม่ใช่คนที่รู้ดีที่สุดเสมอ — คนที่ยืนอยู่หน้าเครื่องรู้ว่า
+  // เพิ่งเปิดหรือเปิดค้างมาทั้งวัน แต่ต้องมีตัวเลขที่เป็นบวกจริงถึงจะยืนยันได้
+  const hasValue = typeof steadyAbs === 'number' && (isBase ? steadyAbs > 0.1 : steadyAbs - base > 0.1);
+  const enoughData = inWin.length >= (preRunning ? 6 : MIN_SAMPLES);
+  const usable = hasValue && (enoughData || confirmed);
 
   return {
     id: test.id,
     zone: test.zone,
     name: zone?.name || test.zone,
     usable,
+    confirmed,
+    preRunning,
     startedAt: from,
     endedAt: test.ended_at,
     status: test.status,
@@ -247,23 +274,151 @@ export class Zones {
     initZoneTables(this.db);
   }
 
+  /* ---------------------------------------------------- รายการโซน (แก้ได้) */
+
+  /** โซนทั้งหมดที่ยังใช้งานอยู่ เรียงตามลำดับที่ตั้งไว้ */
+  list(includeRemoved = false) {
+    const sql = includeRemoved
+      ? 'SELECT * FROM zone_defs ORDER BY sort, slug'
+      : 'SELECT * FROM zone_defs WHERE active = 1 ORDER BY sort, slug';
+    return this.db.prepare(sql).all().map(rowToZone);
+  }
+
+  /** นิยามของโซนหนึ่ง — หาแม้โซนถูกซ่อนไปแล้ว เพราะประวัติเก่ายังต้องรู้ชื่อ */
+  def(slug) {
+    const r = this.db.prepare('SELECT * FROM zone_defs WHERE slug = ?').get(slug);
+    return r ? rowToZone(r) : null;
+  }
+
+  /**
+   * เพิ่มโซนใหม่ หรือแก้โซนเดิม
+   *
+   * slug สร้างอัตโนมัติจากเวลา ไม่ให้คนต้องคิดรหัสภาษาอังกฤษเอง — ชื่อไทยแปลงเป็น
+   * slug ที่อ่านออกไม่ได้อยู่แล้ว และถ้าให้พิมพ์เองก็จะซ้ำกันจนทับข้อมูลเก่า
+   */
+  saveZone(input) {
+    const name = clean(input.name);
+    if (!name) throw new Error('ต้องใส่ชื่อโซน');
+
+    const minutes = Math.max(1, Math.min(120, numOr(input.minutes, 15)));
+    const isProtected = !!input.protectedZone;
+    const isBaseline = !!input.baseline;
+    const owner = clean(input.owner) || null;
+    const note = clean(input.note) || null;
+    const slug = clean(input.slug);
+
+    if (slug) {
+      const cur = this.def(slug);
+      if (!cur) throw new Error(`ไม่รู้จักโซน "${slug}"`);
+      // โซนที่ห้ามปิดต้องไม่มีลำดับการปิดค้างอยู่ ไม่งั้นสองค่านี้จะขัดกันเอง
+      const order = isProtected ? null : numOr(input.shedOrder, cur.shedOrder);
+      this.db.prepare(`UPDATE zone_defs SET name=?, minutes=?, shed_order=?, protected=?,
+                       is_baseline=?, owner=?, note=? WHERE slug=?`)
+        .run(name, minutes, order, isProtected ? 1 : 0, isBaseline ? 1 : 0, owner, note, slug);
+      this.log(`แก้โซน "${name}"`);
+      return this.def(slug);
+    }
+
+    const newSlug = 'z-' + Date.now().toString(36);
+    const maxSort = this.db.prepare('SELECT max(sort) m FROM zone_defs').get().m ?? 0;
+    // โซนใหม่ต่อท้ายลำดับการปิด = ปิดเป็นอันหลังสุด จนกว่าจะมีคนบอกว่าควรอยู่ตรงไหน
+    // ปลอดภัยกว่าเดาให้ปิดก่อน เพราะระบบยังไม่รู้ว่าปิดตัวนี้แล้วกระทบใคร
+    const maxOrder = this.db.prepare('SELECT max(shed_order) m FROM zone_defs').get().m ?? 0;
+    const order = isProtected ? null : numOr(input.shedOrder, maxOrder + 1);
+
+    this.db.prepare(`INSERT INTO zone_defs
+      (slug,name,minutes,shed_order,protected,is_baseline,owner,note,sort)
+      VALUES (?,?,?,?,?,?,?,?,?)`)
+      .run(newSlug, name, minutes, order, isProtected ? 1 : 0, isBaseline ? 1 : 0, owner, note, maxSort + 1);
+    this.log(`เพิ่มโซนใหม่ "${name}" (เปิดค้าง ${minutes} นาที)`);
+    return this.def(newSlug);
+  }
+
+  /** ซ่อนโซน — ไม่ลบจริง ผลวัดเก่ายังอยู่ครบและกู้กลับได้ */
+  removeZone(slug) {
+    const z = this.def(slug);
+    if (!z) throw new Error(`ไม่รู้จักโซน "${slug}"`);
+    const cur = this.running();
+    if (cur && cur.zone === slug) throw new Error('โซนนี้กำลังวัดอยู่ ต้องจบหรือทิ้งการวัดก่อน');
+    this.db.prepare('UPDATE zone_defs SET active = 0 WHERE slug = ?').run(slug);
+    this.log(`เอาโซน "${z.name}" ออกจากรายการ (ผลวัดเก่ายังเก็บไว้)`);
+    return true;
+  }
+
+  restoreZone(slug) {
+    this.db.prepare('UPDATE zone_defs SET active = 1 WHERE slug = ?').run(slug);
+    return this.def(slug);
+  }
+
+  /**
+   * เลื่อนลำดับการปิดขึ้น/ลงหนึ่งขั้น
+   *
+   * สลับเลขกับเพื่อนบ้านแทนการเขียนลำดับใหม่ทั้งชุด — ลำดับของโซนอื่นจะได้ไม่ขยับ
+   * ตามไปด้วยโดยไม่มีใครสั่ง
+   */
+  moveShedOrder(slug, dir) {
+    const z = this.def(slug);
+    if (!z) throw new Error(`ไม่รู้จักโซน "${slug}"`);
+    if (z.protectedZone || z.shedOrder === null) throw new Error('โซนนี้ปิดไม่ได้ จึงไม่มีลำดับการปิด');
+
+    const neighbour = this.db.prepare(
+      dir === 'up'
+        ? 'SELECT * FROM zone_defs WHERE active=1 AND shed_order IS NOT NULL AND shed_order < ? ORDER BY shed_order DESC LIMIT 1'
+        : 'SELECT * FROM zone_defs WHERE active=1 AND shed_order IS NOT NULL AND shed_order > ? ORDER BY shed_order ASC LIMIT 1',
+    ).get(z.shedOrder);
+    if (!neighbour) return this.list();
+
+    const upd = this.db.prepare('UPDATE zone_defs SET shed_order = ? WHERE slug = ?');
+    upd.run(neighbour.shed_order, z.slug);
+    upd.run(z.shedOrder, neighbour.slug);
+    return this.list();
+  }
+
+  /* ------------------------------------------------------------ การวัดผล */
+
   /** การวัดที่ยังไม่จบ (มีได้ทีละอันเท่านั้น — วัดพร้อมกันสองโซนแยกกันไม่ออก) */
   running() {
     const row = this.db.prepare("SELECT * FROM zone_tests WHERE status = 'running' ORDER BY started_at DESC").get();
     return row || null;
   }
 
-  start(slug, at = Date.now()) {
-    const zone = zoneBySlug(slug);
+  /**
+   * เส้นฐานที่บันทึกไว้ = ผลรวมโซนพื้นฐานที่วัดแล้ว (ไฟส่องสว่าง)
+   * ใช้ตอนวัดของที่เปิดค้างอยู่ก่อนแล้ว
+   */
+  savedBaselineKw() {
+    return sumBaselines(this.list(), this.latestAll());
+  }
+
+  start(slug, { at = Date.now(), preRunning = false } = {}) {
+    const zone = this.def(slug);
     if (!zone) throw new Error(`ไม่รู้จักโซน "${slug}"`);
     const cur = this.running();
-    if (cur) throw new Error(`กำลังวัด "${zoneBySlug(cur.zone)?.name || cur.zone}" อยู่ ต้องจบอันนั้นก่อน`);
+    if (cur) throw new Error(`กำลังวัด "${this.def(cur.zone)?.name || cur.zone}" อยู่ ต้องจบอันนั้นก่อน`);
+
+    const baseKw = preRunning ? this.savedBaselineKw() : null;
+    if (preRunning && baseKw === null) {
+      throw new Error('ยังไม่มีเส้นฐานที่บันทึกไว้ — ต้องวัดไฟส่องสว่างก่อน ถึงจะวัดของที่เปิดค้างอยู่ได้');
+    }
 
     const r = this.db
-      .prepare("INSERT INTO zone_tests (zone, started_at, status) VALUES (?, ?, 'running')")
-      .run(slug, Math.round(at));
-    this.log(`เริ่มวัดโซน "${zone.name}" — ให้เปิดค้าง ${zone.minutes} นาที`);
+      .prepare("INSERT INTO zone_tests (zone, started_at, status, base_mode, base_kw) VALUES (?,?,'running',?,?)")
+      .run(slug, Math.round(at), preRunning ? 'fixed' : 'auto', baseKw);
+    this.log(preRunning
+      ? `เริ่มวัดโซน "${zone.name}" (เปิดค้างอยู่ก่อนแล้ว เทียบกับเส้นฐาน ${baseKw} kW)`
+      : `เริ่มวัดโซน "${zone.name}" — ให้เปิดค้าง ${zone.minutes} นาที`);
     return this.byId(Number(r.lastInsertRowid));
+  }
+
+  /** คนยืนยันเองว่าผลนี้ใช้ได้ แม้ข้อมูลจะสั้นกว่าที่ระบบอยากได้ */
+  confirm(id) {
+    const row = this.db.prepare('SELECT * FROM zone_tests WHERE id = ?').get(Number(id));
+    if (!row) throw new Error('ไม่พบผลการวัดนี้');
+    this.db.prepare('UPDATE zone_tests SET confirmed = 1 WHERE id = ?').run(row.id);
+    const result = computeTest(this.store, { ...row, confirmed: 1 }, this.def(row.zone));
+    this.db.prepare('UPDATE zone_tests SET snapshot = ? WHERE id = ?').run(JSON.stringify(result), row.id);
+    this.log(`ยืนยันผลการวัด "${result.name}" ด้วยตัวเอง — ${result.steadyKw} kW`);
+    return result;
   }
 
   /** จบการวัด แล้วคำนวณ + เก็บ snapshot ไว้ */
@@ -275,7 +430,7 @@ export class Zones {
       .run(Math.round(at), note || null, cur.id);
 
     const row = this.db.prepare('SELECT * FROM zone_tests WHERE id = ?').get(cur.id);
-    const result = computeTest(this.store, row);
+    const result = computeTest(this.store, row, this.def(row.zone));
     this.db.prepare('UPDATE zone_tests SET snapshot = ? WHERE id = ?').run(JSON.stringify(result), cur.id);
     this.log(`จบการวัด "${result.name}" — เดินปกติ ${result.steadyKw} kW / พีค ${result.peakKw} kW`);
     return result;
@@ -287,16 +442,18 @@ export class Zones {
    * มีเพราะคนเปิดเครื่องก่อนแล้วค่อยนึกได้ว่าต้องกดจับเวลา ถ้าไม่มีทางนี้
    * ก็ต้องไปปิดแล้วเปิดใหม่รอบหนึ่งเปล่า ๆ ทั้งที่ข้อมูลดิบเก็บไว้ครบอยู่แล้ว
    */
-  record(slug, from, to, note = '') {
-    const zone = zoneBySlug(slug);
+  record(slug, from, to, note = '', preRunning = false) {
+    const zone = this.def(slug);
     if (!zone) throw new Error(`ไม่รู้จักโซน "${slug}"`);
     if (!(to > from)) throw new Error('ช่วงเวลาไม่ถูกต้อง');
+    const baseKw = preRunning ? this.savedBaselineKw() : null;
     const r = this.db
-      .prepare("INSERT INTO zone_tests (zone, started_at, ended_at, status, note) VALUES (?,?,?,'done',?)")
-      .run(slug, Math.round(from), Math.round(to), note || null);
+      .prepare(`INSERT INTO zone_tests (zone, started_at, ended_at, status, note, base_mode, base_kw)
+                VALUES (?,?,?,'done',?,?,?)`)
+      .run(slug, Math.round(from), Math.round(to), note || null, preRunning ? 'fixed' : 'auto', baseKw);
 
     const row = this.db.prepare('SELECT * FROM zone_tests WHERE id = ?').get(Number(r.lastInsertRowid));
-    const result = computeTest(this.store, row);
+    const result = computeTest(this.store, row, this.def(row.zone));
     this.db.prepare('UPDATE zone_tests SET snapshot = ? WHERE id = ?').run(JSON.stringify(result), row.id);
     this.log(`บันทึกย้อนหลัง "${result.name}" — เดินปกติ ${result.steadyKw} kW / พีค ${result.peakKw} kW`);
     return result;
@@ -306,13 +463,13 @@ export class Zones {
     const cur = this.running();
     if (!cur) return null;
     this.db.prepare("UPDATE zone_tests SET status = 'cancelled', ended_at = ? WHERE id = ?").run(Date.now(), cur.id);
-    this.log(`ยกเลิกการวัด "${zoneBySlug(cur.zone)?.name || cur.zone}"`);
+    this.log(`ยกเลิกการวัด "${this.def(cur.zone)?.name || cur.zone}"`);
     return cur.id;
   }
 
   byId(id) {
     const row = this.db.prepare('SELECT * FROM zone_tests WHERE id = ?').get(id);
-    return row ? computeTest(this.store, row) : null;
+    return row ? computeTest(this.store, row, this.def(row.zone)) : null;
   }
 
   /** ผลทุกครั้งของโซนหนึ่ง ใหม่ก่อน */
@@ -332,7 +489,7 @@ export class Zones {
    */
   latestAll() {
     const out = {};
-    for (const z of ZONES) {
+    for (const z of this.list()) {
       // ไล่จากใหม่ไปเก่า เอาครั้งล่าสุดที่ผลใช้ได้จริง
       //
       // ถ้าเอาครั้งล่าสุดดื้อ ๆ การกดวัดพลาดครั้งเดียว (ลืมเปิดเครื่อง กดจบเร็วไป)
@@ -353,7 +510,7 @@ export class Zones {
 
   /** คำนวณสด ถ้าข้อมูลดิบถูกลบไปแล้วค่อยใช้ snapshot ที่เก็บไว้ */
   _resultOf(row) {
-    const live = computeTest(this.store, row);
+    const live = computeTest(this.store, row, this.def(row.zone));
     if (live.samples >= MIN_SAMPLES) return live;
     if (row.snapshot) {
       try { return { ...JSON.parse(row.snapshot), fromSnapshot: true }; } catch { /* พังก็ใช้ค่าสด */ }
@@ -365,8 +522,9 @@ export class Zones {
   overview(cfg) {
     const latest = this.latestAll();
     const cur = this.running();
+    const defs = this.list();
 
-    const zones = ZONES.map((z) => {
+    const zones = defs.map((z) => {
       const r = latest[z.slug];
       return {
         slug: z.slug,
@@ -388,8 +546,9 @@ export class Zones {
             }
           : null,
         // วัดไปแล้วแต่ผลใช้ไม่ได้ — ต้องบอกให้เห็น ไม่ใช่ทำเหมือนไม่เคยวัด
+        // ส่ง id มาด้วย เผื่อคนดูแล้วรู้ว่าค่าถูกอยู่แล้วจะได้กดยืนยันได้
         failed: r && !r.usable
-          ? { at: r.startedAt, warnings: r.warnings, steadyKw: r.steadyKw, samples: r.samples }
+          ? { id: r.id, at: r.startedAt, warnings: r.warnings, steadyKw: r.steadyKw, samples: r.samples }
           : null,
       };
     });
@@ -403,29 +562,30 @@ export class Zones {
         ? {
             id: cur.id,
             zone: cur.zone,
-            name: zoneBySlug(cur.zone)?.name || cur.zone,
+            name: this.def(cur.zone)?.name || cur.zone,
             startedAt: cur.started_at,
-            minutes: zoneBySlug(cur.zone)?.minutes || 15,
-            live: computeTest(this.store, cur),
+            minutes: this.def(cur.zone)?.minutes || 15,
+            live: computeTest(this.store, cur, this.def(cur.zone)),
           }
         : null,
       // เส้นฐาน = ไฟส่องสว่างทุกโซนรวมกัน (ออฟฟิศเปิดตลอด โกดังเปิดเฉพาะเวลาทำงาน)
-      baselineKw: sumBaselines(latest),
-      baselineParts: ZONES.filter((z) => z.baseline).map((z) => ({
-        slug: z.slug, name: z.name, kw: latest[z.slug]?.steadyKw ?? null,
+      baselineKw: sumBaselines(defs, latest),
+      baselineParts: defs.filter((z) => z.baseline).map((z) => ({
+        slug: z.slug, name: z.name, kw: latest[z.slug]?.usable ? latest[z.slug].steadyKw : null,
       })),
       totalShedableKw: round1(shedable.reduce((s, z) => s + (z.measured.steadyKw || 0), 0)),
       doneCount: measured.length,
-      totalCount: ZONES.filter((z) => !z.baseline).length,
+      totalCount: defs.filter((z) => !z.baseline).length,
       nextSuggestion: nextToMeasure(zones),
       shedList: buildShedList(this),
+      removedZones: this.list(true).filter((z) => !z.active).map((z) => ({ slug: z.slug, name: z.name })),
     };
   }
 }
 
 /** ไฟส่องสว่างทุกโซนรวมกัน — null ถ้ายังไม่เคยวัดสักโซน */
-function sumBaselines(latest) {
-  const vals = ZONES.filter((z) => z.baseline)
+function sumBaselines(defs, latest) {
+  const vals = defs.filter((z) => z.baseline)
     .map((z) => (latest[z.slug]?.usable ? latest[z.slug].steadyKw : null))
     .filter((v) => typeof v === 'number');
   return vals.length ? round1(vals.reduce((a, b) => a + b, 0)) : null;
@@ -448,7 +608,7 @@ function nextToMeasure(zones) {
  */
 export function buildShedList(zones) {
   const latest = zones.latestAll();
-  return ZONES.filter((z) => !z.protectedZone && z.shedOrder !== null)
+  return zones.list().filter((z) => !z.protectedZone && z.shedOrder !== null)
     .filter((z) => latest[z.slug]?.usable && latest[z.slug].steadyKw > 0)
     .sort((a, b) => a.shedOrder - b.shedOrder)
     .map((z) => ({

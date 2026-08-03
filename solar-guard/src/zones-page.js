@@ -76,8 +76,16 @@ export function zonesHtml(cfg) {
   .muted{color:#64748b;font-size:14px;line-height:1.7}
   .err{background:#7f1d1d55;border:1px solid #ef444488;color:#fca5a5;padding:12px 14px;border-radius:10px;margin-bottom:12px}
   .ok{background:#06402855;border:1px solid #22c55e88;color:#86efac;padding:12px 14px;border-radius:10px;margin-bottom:12px}
-  select{font-family:inherit;font-size:16px;padding:13px;border-radius:12px;background:#0b1120;
-         color:#f8fafc;border:1px solid #334155;width:100%}
+  select,input[type=text],input[type=number],input:not([type]){font-family:inherit;font-size:16px;padding:13px;
+         border-radius:12px;background:#0b1120;color:#f8fafc;border:1px solid #334155;width:100%}
+  input:focus,select:focus{outline:none;border-color:#f59e0b}
+  .fl{display:block;font-size:13px;color:#94a3b8;margin:14px 0 6px}
+  .frow{display:flex;gap:12px;flex-wrap:wrap}
+  .chk{display:flex;align-items:center;gap:10px;margin-top:14px;font-size:15px;color:#cbd5e1;line-height:1.45}
+  .chk input{width:22px;height:22px;flex:none;accent-color:#f59e0b}
+  .tools{display:flex;gap:6px;margin-left:auto}
+  .tools button{width:auto;padding:8px 11px;font-size:14px;background:transparent;color:#94a3b8}
+  .shedrow-tools button{width:auto;padding:6px 10px;font-size:15px;background:#1e293b;color:#cbd5e1;margin-left:4px}
 </style>
 </head>
 <body>
@@ -116,10 +124,9 @@ export function zonesHtml(cfg) {
   <div class="card" id="starter">
     <div class="muted" id="nextHint" style="margin-bottom:10px"></div>
     <select id="pick"></select>
-    <div class="row"><button class="go" id="btnStart">เริ่มวัดโซนนี้ (เปิดเครื่องแล้วค่อยกด)</button></div>
-    <div class="muted" style="margin-top:10px">
-      กดตอนที่เพิ่งเปิดเครื่องเสร็จ ระบบจะเทียบกับ 90 วินาทีก่อนหน้าเป็นเส้นฐานให้เอง
-    </div>
+    <label class="chk"><input type="checkbox" id="fPre"> เครื่องนี้<b>เปิดค้างอยู่ก่อนแล้ว</b> (ไม่ได้เพิ่งเปิด)</label>
+    <div class="row"><button class="go" id="btnStart">เริ่มวัดโซนนี้</button></div>
+    <div class="muted" style="margin-top:10px" id="startHint"></div>
   </div>
 
   <h2>ผลที่วัดได้แล้ว</h2>
@@ -129,6 +136,34 @@ export function zonesHtml(cfg) {
   <div class="card">
     <table id="shed"><tbody></tbody></table>
     <div class="muted" id="shedNote" style="margin-top:12px"></div>
+  </div>
+
+  <h2>เพิ่ม / แก้โซน</h2>
+  <div class="card">
+    <div class="muted" style="margin-bottom:12px" id="formHint">
+      ซื้อแอร์เพิ่ม ติดปั๊มใหม่ ตั้งตู้แช่ — เพิ่มเข้ารายการได้เลย แล้วค่อยไปวัดทีหลัง
+    </div>
+    <label class="fl">ชื่อโซน</label>
+    <input id="fName" placeholder="เช่น แอร์ห้องประชุม, ตู้แช่หน้าร้าน">
+    <div class="frow">
+      <div style="flex:1">
+        <label class="fl">ต้องเปิดค้างกี่นาทีตอนวัด</label>
+        <input id="fMin" type="number" min="1" max="120" value="15" inputmode="numeric">
+      </div>
+      <div style="flex:1">
+        <label class="fl">ใครดูแล (ไม่ใส่ก็ได้)</label>
+        <input id="fOwner" placeholder="เช่น พนักงานโกดัง">
+      </div>
+    </div>
+    <label class="fl">หมายเหตุ (ไม่ใส่ก็ได้)</label>
+    <input id="fNote" placeholder="เช่น ปิดได้เฉพาะตอนไม่มีประชุม">
+    <label class="chk"><input type="checkbox" id="fProt"> ห้ามสั่งปิดเด็ดขาด (เช่น ไฟส่องสว่าง ตู้แช่ที่ของจะเสีย)</label>
+    <label class="chk"><input type="checkbox" id="fBase"> เป็นโหลดพื้นฐาน เปิดค้างตลอด (ใช้เป็นเส้นฐานให้โซนอื่น)</label>
+    <div class="row">
+      <button class="go" id="btnSaveZone">เพิ่มโซน</button>
+      <button class="ghost" id="btnResetForm" style="max-width:110px;display:none">ยกเลิก</button>
+    </div>
+    <div id="removed" class="muted" style="margin-top:16px"></div>
   </div>
 </div>
 
@@ -201,14 +236,21 @@ function render() {
     const btn = d.running ? '' :
       '<button' + (f && !m ? ' class="go"' : '') + ' data-go="' + z.slug + '">' +
       (m ? 'วัดใหม่' : f ? 'วัดอีกครั้ง' : 'วัด') + '</button>';
+    // ผลที่ระบบไม่รับ แต่คนอาจรู้ว่าถูกอยู่แล้ว (เช่นเปิดค้างมาทั้งวัน โหลดนิ่งแล้ว)
+    const okBtn = f && f.steadyKw > 0
+      ? '<button class="stop" data-ok="' + f.id + '" style="width:auto;padding:10px 14px;font-size:14px">ใช้ค่า ' + f.steadyKw.toFixed(1) + ' kW นี้</button>'
+      : '';
+    const tools = d.running ? '' :
+      '<span class="tools"><button data-edit="' + z.slug + '" title="แก้">✏️</button>' +
+      '<button data-del="' + z.slug + '" title="เอาออกจากรายการ">🗑</button></span>';
     return '<div class="' + cls + '"><div class="info"><div class="zn">' + z.name +
       (z.protectedZone ? '<span class="badge lock">🔒 ห้ามปิด</span>' : '') +
-      '</div><div class="zs">' + sub.join(' · ') + '</div>' + warn + '</div>' + val + btn + '</div>';
+      '</div><div class="zs">' + sub.join(' · ') + '</div>' + warn + '</div>' + val + btn + tools + '</div>';
   }).join('');
 
-  document.querySelectorAll('[data-go]').forEach((b) => {
-    b.onclick = () => start(b.dataset.go);
-  });
+  document.querySelectorAll('[data-go]').forEach((b) => { b.onclick = () => start(b.dataset.go); });
+  document.querySelectorAll('[data-edit]').forEach((b) => { b.onclick = () => editZone(b.dataset.edit); });
+  document.querySelectorAll('[data-del]').forEach((b) => { b.onclick = () => removeZone(b.dataset.del); });
 
   // ---- ตัวเลือกโซนถัดไป ----
   $('pick').innerHTML = d.zones.map((z) =>
@@ -218,12 +260,36 @@ function render() {
     ? 'วัดแล้ว ' + d.doneCount + ' จาก ' + d.totalCount + ' โซน — ถัดไปที่แนะนำ: ' + d.nextSuggestion.name
     : 'วัดครบทุกโซนแล้ว ' + d.doneCount + '/' + d.totalCount;
 
-  // ---- ลำดับการปิด ----
+  // ---- ลำดับการปิด (เลื่อนขึ้น/ลงได้) ----
   const rows = d.shedList.map((s, i) =>
     '<tr><td>' + (i + 1) + '. ' + s.name + (s.owner ? ' <span class="muted">— ' + s.owner + '</span>' : '') +
-    '</td><td class="n">−' + s.kw.toFixed(1) + ' kW</td></tr>').join('');
+    '</td><td class="n">−' + s.kw.toFixed(1) + ' kW</td>' +
+    '<td class="n shedrow-tools" style="width:1%">' +
+    (i > 0 ? '<button data-mv="up" data-slug="' + s.slug + '" title="ปิดก่อนขึ้นอีกขั้น">↑</button>' : '') +
+    (i < d.shedList.length - 1 ? '<button data-mv="down" data-slug="' + s.slug + '" title="ปิดทีหลังลงอีกขั้น">↓</button>' : '') +
+    '</td></tr>').join('');
   $('shed').querySelector('tbody').innerHTML = rows ||
     '<tr><td class="muted">ยังไม่มีข้อมูล — วัดอย่างน้อยหนึ่งโซนก่อน</td></tr>';
+  // ---- โซนที่เอาออกไป (ยังกู้กลับได้) ----
+  const rm = d.removedZones || [];
+  $('removed').innerHTML = rm.length
+    ? 'เอาออกไปแล้ว: ' + rm.map((z) =>
+        z.name + ' <button data-restore="' + z.slug + '" style="width:auto;padding:5px 10px;font-size:13px">เอากลับมา</button>').join(' · ')
+    : '';
+  document.querySelectorAll('[data-restore]').forEach((b) => {
+    b.onclick = async () => {
+      try { await api('/api/loads/zone/restore', { slug: b.dataset.restore }); await load(); msg('เอากลับมาแล้ว'); }
+      catch (e) { msg(e.message, 'err'); }
+    };
+  });
+
+  document.querySelectorAll('[data-mv]').forEach((b) => {
+    b.onclick = async () => {
+      try { await api('/api/loads/zone/move', { slug: b.dataset.slug, dir: b.dataset.mv }); await load(); }
+      catch (e) { msg(e.message, 'err'); }
+    };
+  });
+
   $('shedNote').innerHTML = d.shedList.length
     ? 'ปิดครบทั้งหมดนี้ลดได้ <b>' + d.totalShedableKw.toFixed(1) + ' kW</b> — ' +
       'เวลาไฟเกิน ระบบจะเลือกจากบนลงล่างให้พอดีกับส่วนที่เกิน แล้วส่งเข้า Telegram / LINE / อีเมล ' +
@@ -237,15 +303,83 @@ function when(ts) {
     String(d.getUTCHours()).padStart(2, '0') + ':' + String(d.getUTCMinutes()).padStart(2, '0');
 }
 
-async function start(slug) {
+/* ---- ฟอร์มเพิ่ม/แก้โซน ---- */
+let editing = null;
+
+function fillForm(z) {
+  editing = z ? z.slug : null;
+  $('fName').value = z ? z.name : '';
+  $('fMin').value = z ? z.minutes : 15;
+  $('fOwner').value = z && z.owner ? z.owner : '';
+  $('fNote').value = z && z.note ? z.note : '';
+  $('fProt').checked = !!(z && z.protectedZone);
+  $('fBase').checked = !!(z && z.baseline);
+  $('btnSaveZone').textContent = z ? 'บันทึกการแก้ไข' : 'เพิ่มโซน';
+  $('btnResetForm').style.display = z ? 'block' : 'none';
+  $('formHint').textContent = z
+    ? 'กำลังแก้ "' + z.name + '" — ผลวัดเก่ายังอยู่ครบ'
+    : 'ซื้อแอร์เพิ่ม ติดปั๊มใหม่ ตั้งตู้แช่ — เพิ่มเข้ารายการได้เลย แล้วค่อยไปวัดทีหลัง';
+}
+
+function editZone(slug) {
+  const z = DATA.zones.find((x) => x.slug === slug);
+  if (!z) return;
+  fillForm(z);
+  $('fName').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+async function removeZone(slug) {
+  const z = DATA.zones.find((x) => x.slug === slug);
+  if (!z) return;
+  if (!confirm('เอา "' + z.name + '" ออกจากรายการ?\\n\\nผลที่วัดไว้ยังเก็บอยู่ในฐานข้อมูล เอากลับมาได้ภายหลัง')) return;
+  try { await api('/api/loads/zone/remove', { slug: slug }); if (editing === slug) fillForm(null); await load(); msg('เอาออกแล้ว'); }
+  catch (e) { msg(e.message, 'err'); }
+}
+
+$('btnResetForm').onclick = () => fillForm(null);
+
+$('btnSaveZone').onclick = async () => {
+  const body = {
+    slug: editing || '',
+    name: $('fName').value,
+    minutes: Number($('fMin').value),
+    owner: $('fOwner').value,
+    note: $('fNote').value,
+    protectedZone: $('fProt').checked,
+    baseline: $('fBase').checked,
+  };
+  if (!body.name.trim()) { msg('ต้องใส่ชื่อโซนก่อน', 'err'); return; }
   try {
-    await api('/api/loads/start', { zone: slug });
-    msg('เริ่มจับเวลาแล้ว — เปิดค้างไว้จนกว่าหน้าจอจะเป็นสีเขียว');
+    const out = await api('/api/loads/zone', body);
+    msg(editing ? 'บันทึกการแก้ไขแล้ว' : 'เพิ่ม "' + out.zone.name + '" แล้ว — กดปุ่ม "วัด" ข้างชื่อได้เลยเมื่อพร้อม');
+    fillForm(null);
+    await load();
+  } catch (e) { msg(e.message, 'err'); }
+};
+
+async function start(slug) {
+  const pre = $('fPre').checked;
+  try {
+    await api('/api/loads/start', { zone: slug, preRunning: pre });
+    msg(pre
+      ? 'เริ่มแล้ว — เทียบกับเส้นฐานที่บันทึกไว้ ปล่อยไว้สัก 2-3 นาทีแล้วกดจบได้เลย'
+      : 'เริ่มจับเวลาแล้ว — เปิดค้างไว้จนกว่าหน้าจอจะเป็นสีเขียว');
     await load();
   } catch (e) { msg(e.message, 'err'); }
 }
 
 $('btnStart').onclick = () => start($('pick').value);
+
+/* คำอธิบายเปลี่ยนตามช่องติ๊ก เพราะสองแบบนี้เทียบเส้นฐานคนละที่ ผลจึงต่างกันมาก */
+function paintStartHint() {
+  const pre = $('fPre').checked;
+  $('startHint').innerHTML = pre
+    ? 'เทียบกับ<b>เส้นฐานที่บันทึกไว้</b> (ไฟส่องสว่าง ' + (DATA && DATA.baselineKw !== null ? DATA.baselineKw.toFixed(1) + ' kW' : 'ยังไม่ได้วัด') + ') ' +
+      'ใช้เมื่อของเปิดค้างมานานแล้ว — ไม่ต้องรอครบเวลา เพราะไม่มีช่วงกินไฟสูงตอนสตาร์ทให้รอ'
+    : 'กดตอนที่เพิ่งเปิดเครื่องเสร็จ ระบบจะเทียบกับ 90 วินาทีก่อนหน้าเป็นเส้นฐานให้เอง';
+}
+$('fPre').onchange = paintStartHint;
+paintStartHint();
 
 $('btnCancel').onclick = async () => {
   if (!confirm('ทิ้งการวัดนี้ ไม่เก็บผล?')) return;
