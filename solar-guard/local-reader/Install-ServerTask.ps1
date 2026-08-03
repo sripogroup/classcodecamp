@@ -142,19 +142,48 @@ if (-not (Test-Path $launcher)) { throw "Not found: $launcher" }
 
 $action = New-ScheduledTaskAction -Execute $launcher -WorkingDirectory $root
 
-$trigger = New-ScheduledTaskTrigger -AtLogOn
+# Two triggers on purpose:
+#   at logon  - normal start
+#   every 5 min forever - a watchdog. With MultipleInstances=IgnoreNew this is
+#     a no-op while the server is alive, and restarts it within 5 minutes if it
+#     ever died. "Restart on failure" alone was not enough: on 2026-08-03 the
+#     server exited with STATUS_CONTROL_C_EXIT when the console window that
+#     launched it was closed, Task Scheduler counted that as a clean stop, and
+#     nothing brought it back. Nobody would have noticed until the bill arrived.
+$tLogon = New-ScheduledTaskTrigger -AtLogOn
+$tRepeat = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(2) `
+    -RepetitionInterval (New-TimeSpan -Minutes 5)
+$trigger = @($tLogon, $tRepeat)
+
+# -Hidden matters more than it looks. Without it the task gets a visible
+# console in the interactive session, and closing that window sends Ctrl+C
+# to the server - which is exactly how it died the first time.
 $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
     -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 2) `
     -ExecutionTimeLimit ([timespan]::Zero) `
-    -MultipleInstances IgnoreNew
+    -MultipleInstances IgnoreNew `
+    -Hidden
 
-# Runs as the current user: .dev.vars sits in that user's project folder and
-# the DPAPI credential store can only be decrypted by this account anyway.
+# Runs as the current user because .dev.vars sits in that user's project folder.
+#
+# LogonType S4U is the important part, and -Hidden alone was not enough.
+#
+# With the default Interactive logon type the task runs inside the desktop
+# session and its console app is part of that session's console group. Closing
+# any window in that group sends Ctrl+C to it. On 2026-08-03 the server was
+# killed that way four times in a row (exit 0xC000013A = STATUS_CONTROL_C_EXIT),
+# every time within seconds of finishing startup, and "restart on failure" never
+# fired because Windows counts Ctrl+C as a clean exit.
+#
+# S4U runs the task detached from the interactive desktop, with no console to
+# inherit, and needs no stored password. The server does not read DPAPI secrets
+# (it uses .dev.vars), so nothing is lost by detaching.
 $who = "$env:USERDOMAIN\$env:USERNAME"
+$principal = New-ScheduledTaskPrincipal -UserId $who -LogonType S4U -RunLevel Limited
 
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
-    -Settings $settings -User $who -RunLevel Limited -Force | Out-Null
+    -Settings $settings -Principal $principal -Force | Out-Null
 
 Write-Host ""
 Write-Host "Registered: $TaskName" -ForegroundColor Green

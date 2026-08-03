@@ -244,6 +244,16 @@ log(`Solar Guard เซิร์ฟเวอร์ในโรงงาน${NO_A
 log(`อินเวอร์เตอร์ ${L.inverterHost}:${L.inverterPort} unit ${L.inverterUnit} (meterSign ${L.modbusMeterSign})`);
 log(`ฐานข้อมูล ${L.dbFile}`);
 
+// เปิดหน้าเว็บก่อนแตะอินเวอร์เตอร์
+//
+// เดิมรอต่อ Modbus ให้เสร็จก่อนถึงจะเปิดพอร์ต ซึ่งกลับหัวกลับหาง: เวลาที่
+// อินเวอร์เตอร์ต่อไม่ได้คือเวลาที่อยากเปิดหน้าจอดูมากที่สุด แต่กลับเป็นเวลาที่
+// หน้าจอไม่ขึ้นพอดี และทำให้แยกไม่ออกว่า "เซิร์ฟเวอร์ตาย" กับ "อ่านอินเวอร์เตอร์ไม่ได้"
+if (!ONCE) {
+  server.listen(L.port, () =>
+    log(`หน้าจอเปิดที่ http://localhost:${L.port}/  (และ http://<ไอพีเครื่องนี้>:${L.port}/ จากในวง LAN)`));
+}
+
 try {
   await inv.connect();
   const id = await inv.identify();
@@ -265,8 +275,20 @@ await tick();
 setInterval(() => { tick().catch((e) => log(e.message, 'ERROR')); }, L.readEverySec * 1000);
 setInterval(() => store.prune(), 6 * 3600000);
 
-server.listen(L.port, () => log(`หน้าจอเปิดที่ http://localhost:${L.port}/  (และ http://<ไอพีเครื่องนี้>:${L.port}/ จากในวง LAN)`));
-
-for (const sig of ['SIGINT', 'SIGTERM']) {
-  process.on(sig, () => { log('กำลังปิด...'); inv.disconnect(); store.close(); process.exit(0); });
+// บันทึกไว้ให้รู้ว่าใครสั่งปิดและตอนไหน
+//
+// 3 ส.ค. 2569 เซิร์ฟเวอร์ถูกฆ่าซ้ำ ๆ ด้วย Ctrl+C โดยไม่มีร่องรอยว่าใครสั่ง
+// เพราะหน้าต่างคอนโซลที่ Task Scheduler สร้างขึ้นในเซสชันที่ล็อกอินอยู่
+// ส่งสัญญาณนี้มาให้เมื่อหน้าต่างแม่ถูกปิด กว่าจะรู้ว่าตายก็ผ่านไปหลายนาที
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK']) {
+  try {
+    process.on(sig, () => {
+      log(`ได้รับสัญญาณ ${sig} — กำลังปิด`, 'WARN');
+      inv.disconnect();
+      store.close();
+      process.exit(0);
+    });
+  } catch { /* บางสัญญาณไม่มีบน Windows */ }
 }
+process.on('uncaughtException', (e) => log(`ข้อผิดพลาดที่ไม่ได้ดัก: ${e.stack || e.message}`, 'ERROR'));
+process.on('unhandledRejection', (e) => log(`promise ที่ไม่ได้ดัก: ${e?.stack || e}`, 'ERROR'));
