@@ -57,6 +57,7 @@ export function zonesHtml(cfg) {
   .z{background:#111c33;border:1px solid #1e293b;border-radius:14px;padding:14px 16px;
      display:flex;align-items:center;gap:12px;flex-wrap:wrap}
   .z.done{border-color:#166534}
+  .z.fail{border-color:#b45309}
   .z.prot{border-color:#334155;opacity:.9}
   .z .info{flex:1;min-width:180px}
   .z .zn{font-size:17px;font-weight:700}
@@ -182,20 +183,24 @@ function render() {
   // ---- รายการโซน ----
   $('zlist').innerHTML = d.zones.map((z) => {
     const m = z.measured;
-    const cls = 'z' + (m ? ' done' : '') + (z.protectedZone ? ' prot' : '');
+    const f = z.failed;
+    const cls = 'z' + (m ? ' done' : '') + (f ? ' fail' : '') + (z.protectedZone ? ' prot' : '');
     const sub = [];
     if (z.protectedZone) sub.push('ปิดไม่ได้');
     else if (z.shedOrder) sub.push('ปิดเป็นลำดับที่ ' + z.shedOrder);
     sub.push('ต้องเปิดค้าง ' + z.minutes + ' นาที');
     if (m) sub.push('วัดเมื่อ ' + when(m.at));
+    else if (f) sub.push('ลองวัดเมื่อ ' + when(f.at) + ' แต่ใช้ไม่ได้');
     if (z.note) sub.push(z.note);
-    const warn = m && m.warnings && m.warnings.length
-      ? '<div class="warn">⚠ ' + m.warnings.join('<br>⚠ ') + '</div>' : '';
+    const wsrc = m || f;
+    const warn = wsrc && wsrc.warnings && wsrc.warnings.length
+      ? '<div class="warn">⚠ ' + wsrc.warnings.join('<br>⚠ ') + '</div>' : '';
     const val = m
       ? '<div class="kw">' + m.steadyKw.toFixed(1) + '<small>เดินปกติ (พีค ' + m.peakKw.toFixed(1) + ')</small></div>'
       : '';
     const btn = d.running ? '' :
-      '<button data-go="' + z.slug + '">' + (m ? 'วัดใหม่' : 'วัด') + '</button>';
+      '<button' + (f && !m ? ' class="go"' : '') + ' data-go="' + z.slug + '">' +
+      (m ? 'วัดใหม่' : f ? 'วัดอีกครั้ง' : 'วัด') + '</button>';
     return '<div class="' + cls + '"><div class="info"><div class="zn">' + z.name +
       (z.protectedZone ? '<span class="badge lock">🔒 ห้ามปิด</span>' : '') +
       '</div><div class="zs">' + sub.join(' · ') + '</div>' + warn + '</div>' + val + btn + '</div>';

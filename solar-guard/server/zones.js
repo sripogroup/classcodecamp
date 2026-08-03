@@ -20,7 +20,11 @@ import { round1, round2 } from '../src/util.js';
 /* ------------------------------------------------------------ รายการโซน */
 
 /**
- * โซนทั้งหมดในโรงงาน — พ่อเต้ยเป็นคนระบุรายการนี้เมื่อ 3 ส.ค. 2569
+ * รายการโซนตั้งต้น — พ่อเต้ยเป็นคนระบุเมื่อ 3 ส.ค. 2569
+ *
+ * ใช้แค่ตอนสร้างฐานข้อมูลครั้งแรกเท่านั้น หลังจากนั้นรายการจริงอยู่ในตาราง
+ * zone_defs และแก้ได้จากหน้าจอ (โรงงานซื้อของเพิ่มได้ตลอด ถ้าต้องมาแก้โค้ด
+ * ทุกครั้งที่ซื้อแอร์เพิ่มหนึ่งตัว สุดท้ายก็จะไม่มีใครแก้ แล้วรายการก็จะไม่ตรง)
  *
  * minutes = ต้องเปิดค้างกี่นาทีถึงจะได้ค่าที่เชื่อถือได้
  *   แอร์โกดัง 20 นาที  พื้นที่ใหญ่ กว่าคอมเพรสเซอร์จะเข้าสู่รอบเดินปกติใช้เวลานาน
@@ -34,7 +38,7 @@ import { round1, round2 } from '../src/util.js';
  *
  * protectedZone = ห้ามสั่งปิดเด็ดขาด (พ่อเต้ยระบุ: ไฟส่องสว่างปิดไม่ได้)
  */
-export const ZONES = [
+export const DEFAULT_ZONES = [
   // ไฟส่องสว่างแยกสองโซนเพราะกลางคืนโกดังปิดไฟหมด แต่ออฟฟิศยังเปิด
   // ถ้ารวมเป็นก้อนเดียว เส้นฐานกลางวันกับกลางคืนจะไม่เท่ากันโดยไม่มีใครรู้ว่าทำไม
   { slug: 'lighting',     name: 'ไฟส่องสว่างออฟฟิศ (ห้องทำงานเต้ย+มิ้ง+แอดมิน)', minutes: 10,
@@ -57,7 +61,9 @@ export const ZONES = [
     note: 'ปิดเป็นอันสุดท้าย — เวลาปิดแอร์แล้ว พัดลมคือสิ่งที่ทำให้ยังทนทำงานได้' },
 ];
 
-export const zoneBySlug = (slug) => ZONES.find((z) => z.slug === slug) || null;
+/** ตัวช่วยเล็ก ๆ ที่ใช้ทั้งไฟล์ */
+const clean = (s) => String(s ?? '').trim();
+const numOr = (v, d) => (v === null || v === undefined || v === '' || Number.isNaN(Number(v)) ? d : Number(v));
 
 /* ------------------------------------------------------- ค่าคงที่ของการวัด */
 
@@ -73,7 +79,7 @@ const MIN_SAMPLES = 24;
 
 /* --------------------------------------------------------------- ที่เก็บ */
 
-/** สร้างตาราง — เรียกครั้งเดียวตอนเปิดเซิร์ฟเวอร์ */
+/** สร้างตาราง + ใส่รายการตั้งต้นถ้ายังว่าง — เรียกครั้งเดียวตอนเปิดเซิร์ฟเวอร์ */
 export function initZoneTables(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS zone_tests (
@@ -86,7 +92,50 @@ export function initZoneTables(db) {
       snapshot   TEXT                     -- ผลที่คำนวณไว้ตอนจบ (กัน readings ถูกลบทิ้ง)
     );
     CREATE INDEX IF NOT EXISTS zone_tests_zone ON zone_tests(zone, started_at);
+
+    CREATE TABLE IF NOT EXISTS zone_defs (
+      slug        TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      minutes     INTEGER NOT NULL DEFAULT 15,
+      shed_order  INTEGER,                -- NULL = ไม่อยู่ในรายการที่สั่งปิดได้
+      protected   INTEGER NOT NULL DEFAULT 0,
+      is_baseline INTEGER NOT NULL DEFAULT 0,
+      owner       TEXT,
+      note        TEXT,
+      sort        INTEGER NOT NULL DEFAULT 0,
+      -- ลบแบบซ่อน ไม่ลบจริง เพราะผลวัดเก่ายังอ้างถึงโซนนี้อยู่
+      -- ถ้าลบทิ้งจริง ประวัติจะกลายเป็นแถวที่ไม่รู้ว่าของอะไร
+      active      INTEGER NOT NULL DEFAULT 1
+    );
   `);
+
+  const n = db.prepare('SELECT count(*) c FROM zone_defs').get().c;
+  if (n === 0) {
+    const ins = db.prepare(`INSERT INTO zone_defs
+      (slug,name,minutes,shed_order,protected,is_baseline,owner,note,sort)
+      VALUES (?,?,?,?,?,?,?,?,?)`);
+    DEFAULT_ZONES.forEach((z, i) => ins.run(
+      z.slug, z.name, z.minutes, z.shedOrder ?? null,
+      z.protectedZone ? 1 : 0, z.baseline ? 1 : 0,
+      z.owner || null, z.note || null, i,
+    ));
+  }
+}
+
+/** แถวในฐานข้อมูล -> รูปแบบที่โค้ดส่วนอื่นใช้ */
+function rowToZone(r) {
+  return {
+    slug: r.slug,
+    name: r.name,
+    minutes: r.minutes,
+    shedOrder: r.shed_order,
+    protectedZone: !!r.protected,
+    baseline: !!r.is_baseline,
+    owner: r.owner || null,
+    note: r.note || null,
+    sort: r.sort,
+    active: !!r.active,
+  };
 }
 
 /* --------------------------------------------------------- ตัวช่วยคำนวณ */
@@ -108,9 +157,9 @@ const mean = (arr) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length 
  *
  * @param store  Store — ใช้ดึง readings
  * @param test   แถวจาก zone_tests
+ * @param zone   นิยามโซน (จากตาราง zone_defs) — null ได้ถ้าโซนถูกลบไปแล้ว
  */
-export function computeTest(store, test) {
-  const zone = zoneBySlug(test.zone);
+export function computeTest(store, test, zone = null) {
   const from = test.started_at;
   const to = test.ended_at || Date.now();
 
@@ -156,10 +205,20 @@ export function computeTest(store, test) {
     warnings.push('แทบไม่เห็นความต่าง — ตรวจดูว่าเปิดโซนนั้นจริงหรือยัง');
   }
 
+  // "ใช้ได้จริงไหม" — ต้องแยกจาก "วัดจบแล้ว"
+  //
+  // การวัดที่จบแล้วแต่ข้อมูลน้อยเกินไปหรือได้ค่าติดลบ (ลืมเปิดเครื่อง เปิดผิดตัว
+  // หรือมีอย่างอื่นปิดไประหว่างนั้น) ต้องไม่ถูกนับว่าโซนนั้นวัดเสร็จแล้ว
+  // ไม่งั้นหน้าจอจะบอกว่าครบแล้วทั้งที่ตัวเลขใช้ไม่ได้ แล้วไม่มีใครกลับมาวัดซ้ำ
+  const usable = inWin.length >= MIN_SAMPLES
+    && typeof steadyAbs === 'number'
+    && (isBase ? steadyAbs > 0.1 : steadyAbs - base > 0.1);
+
   return {
     id: test.id,
     zone: test.zone,
     name: zone?.name || test.zone,
+    usable,
     startedAt: from,
     endedAt: test.ended_at,
     status: test.status,
@@ -274,10 +333,20 @@ export class Zones {
   latestAll() {
     const out = {};
     for (const z of ZONES) {
-      const row = this.db
-        .prepare("SELECT * FROM zone_tests WHERE zone = ? AND status = 'done' ORDER BY started_at DESC LIMIT 1")
-        .get(z.slug);
-      out[z.slug] = row ? this._resultOf(row) : null;
+      // ไล่จากใหม่ไปเก่า เอาครั้งล่าสุดที่ผลใช้ได้จริง
+      //
+      // ถ้าเอาครั้งล่าสุดดื้อ ๆ การกดวัดพลาดครั้งเดียว (ลืมเปิดเครื่อง กดจบเร็วไป)
+      // จะลบค่าดีที่วัดมาอย่างดีทิ้งไปเลย ทั้งที่ยังอยู่ในฐานข้อมูลครบ
+      const rows = this.db
+        .prepare("SELECT * FROM zone_tests WHERE zone = ? AND status = 'done' ORDER BY started_at DESC LIMIT 10")
+        .all(z.slug);
+      let pick = null;
+      for (const row of rows) {
+        const r = this._resultOf(row);
+        if (!pick) pick = r;          // เก็บครั้งล่าสุดไว้ก่อน เผื่อไม่มีอันไหนใช้ได้เลย
+        if (r.usable) { pick = r; break; }
+      }
+      out[z.slug] = pick;
     }
     return out;
   }
@@ -308,7 +377,7 @@ export class Zones {
         baseline: !!z.baseline,
         owner: z.owner || null,
         note: z.note || null,
-        measured: r
+        measured: r && r.usable
           ? {
               steadyKw: r.steadyKw,
               peakKw: r.peakKw,
@@ -317,6 +386,10 @@ export class Zones {
               durationSec: r.durationSec,
               warnings: r.warnings,
             }
+          : null,
+        // วัดไปแล้วแต่ผลใช้ไม่ได้ — ต้องบอกให้เห็น ไม่ใช่ทำเหมือนไม่เคยวัด
+        failed: r && !r.usable
+          ? { at: r.startedAt, warnings: r.warnings, steadyKw: r.steadyKw, samples: r.samples }
           : null,
       };
     });
@@ -352,7 +425,9 @@ export class Zones {
 
 /** ไฟส่องสว่างทุกโซนรวมกัน — null ถ้ายังไม่เคยวัดสักโซน */
 function sumBaselines(latest) {
-  const vals = ZONES.filter((z) => z.baseline).map((z) => latest[z.slug]?.steadyKw).filter((v) => typeof v === 'number');
+  const vals = ZONES.filter((z) => z.baseline)
+    .map((z) => (latest[z.slug]?.usable ? latest[z.slug].steadyKw : null))
+    .filter((v) => typeof v === 'number');
   return vals.length ? round1(vals.reduce((a, b) => a + b, 0)) : null;
 }
 
@@ -374,7 +449,7 @@ function nextToMeasure(zones) {
 export function buildShedList(zones) {
   const latest = zones.latestAll();
   return ZONES.filter((z) => !z.protectedZone && z.shedOrder !== null)
-    .filter((z) => latest[z.slug]?.steadyKw > 0)
+    .filter((z) => latest[z.slug]?.usable && latest[z.slug].steadyKw > 0)
     .sort((a, b) => a.shedOrder - b.shedOrder)
     .map((z) => ({
       name: z.name,
