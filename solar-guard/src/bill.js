@@ -97,30 +97,43 @@ export function feedBill(prev, now, gridKw, cfg) {
     return b;
   }
 
-  // ---- อินทิเกรตพลังงานแบบสี่เหลี่ยมคางหมู ----
-  // ใช้ค่าเฉลี่ยของจุดก่อนหน้ากับจุดนี้ แม่นกว่าใช้ค่าใดค่าหนึ่งเดี่ยว ๆ
-  const kwh = ((b.lastKw + kw) / 2) * (dtMs / 3600000);
-  const onPeak = isTouOnPeak(cfg, b.lastT + dtMs / 2); // ใช้จุดกึ่งกลางช่วงเป็นตัวตัดสิน
-
-  if (onPeak) {
-    b.month.onPeakKwh += kwh;
-    b.day.onPeakKwh += kwh;
-  } else {
-    b.month.offPeakKwh += kwh;
-    b.day.offPeakKwh += kwh;
-  }
-
-  // ---- หน้าต่าง 15 นาที สำหรับค่าความต้องการพลังไฟฟ้า ----
+  // ---- อินทิเกรตพลังงาน โดยตัดช่วงตามขอบหน้าต่าง 15 นาที ----
+  //
+  // ต้องตัดตรงขอบ ไม่ใช่โยนพลังงานทั้งก้อนเข้าหน้าต่างที่ค่าล่าสุดตกอยู่
+  // ถ้าไม่ตัด พลังงานของนาทีท้าย ๆ หน้าต่างนี้จะไหลไปโผล่หน้าต่างถัดไป
+  // ทำให้ค่าเฉลี่ย 15 นาทีเพี้ยน ซึ่งแพงมากเพราะคิดเงินกันที่ 132.93 บาท/kW
   //
   // 09:00 กับ 22:00 ตกลงบนขอบหน้าต่างพอดี (15 นาทีหารลงตัวกับชั่วโมง)
   // หน้าต่างหนึ่งจึงอยู่ในช่วง on-peak หรือ off-peak ทั้งอัน ไม่มีคาบเกี่ยว
-  const ws = windowStart(now);
-  if (b.win.start !== ws) {
-    closeWindow(b, cfg);
-    b.win = { start: ws, kwh: 0, coveredMs: 0 };
+  // การตัดตามหน้าต่างจึงแยก on-peak/off-peak ให้ถูกต้องไปในตัว
+  let segStart = b.lastT;
+  while (segStart < now) {
+    const ws = windowStart(segStart);
+    const segEnd = Math.min(now, ws + WINDOW_MS);
+    const segMs = segEnd - segStart;
+
+    // กำลังไฟ ณ หัวและท้ายของช่วงย่อย ได้จากการลากเส้นตรงระหว่างสองจุดที่อ่านได้จริง
+    const kwA = b.lastKw + (kw - b.lastKw) * ((segStart - b.lastT) / dtMs);
+    const kwB = b.lastKw + (kw - b.lastKw) * ((segEnd - b.lastT) / dtMs);
+    const segKwh = ((kwA + kwB) / 2) * (segMs / 3600000);
+
+    if (isTouOnPeak(cfg, ws)) {
+      b.month.onPeakKwh += segKwh;
+      b.day.onPeakKwh += segKwh;
+    } else {
+      b.month.offPeakKwh += segKwh;
+      b.day.offPeakKwh += segKwh;
+    }
+
+    if (b.win.start !== ws) {
+      closeWindow(b, cfg);
+      b.win = { start: ws, kwh: 0, coveredMs: 0 };
+    }
+    b.win.kwh += segKwh;
+    b.win.coveredMs += segMs;
+
+    segStart = segEnd;
   }
-  b.win.kwh += kwh;
-  b.win.coveredMs += dtMs;
 
   b.lastT = now;
   b.lastKw = kw;

@@ -325,6 +325,31 @@ export function buildMessage(event, cfg, now = Date.now()) {
       };
     }
 
+    case 'pv_below_grid': {
+      const gap = round1((sample.grid || 0) - (sample.pv || 0));
+      const body = [
+        `⚖️ <b>ช่วงแดดแรงแต่ซื้อไฟมากกว่าที่โซลาร์ผลิตได้</b>`,
+        `${site} • ${time} น.`,
+        '',
+        `☀️ โซลาร์ผลิต <b>${kw(sample.pv)}</b>`,
+        `⚡ ซื้อจากการไฟฟ้า <b>${kw(sample.grid)}</b> (มากกว่า ${kw(gap)})`,
+        `🏭 โหลดรวม ${kw(sample.load)}`,
+        '',
+        'ช่วงนี้ควรเป็นเวลาที่โซลาร์แบกโหลดได้มากที่สุดของวัน',
+        'สาเหตุที่เป็นไปได้ 2 ทาง:',
+        '1. โหลดสูงผิดปกติ — มีเครื่องใหญ่เปิดพร้อมกันหลายตัว',
+        '2. โซลาร์ผลิตได้น้อยผิดปกติ — แผงสกปรก / เมฆครึ้มทั้งวัน / อินเวอร์เตอร์บางตัวหยุด',
+        '',
+        `ตอนนี้เสียค่าไฟอยู่ราว ${baht(sample.grid * cfg.tariffOnPeak)} ต่อชั่วโมง`,
+      ].join('\n');
+      return {
+        priority: 'normal',
+        telegram: body,
+        emailSubject: `⚖️ ${cfg.siteName}: ซื้อไฟ ${kw(sample.grid)} มากกว่าโซลาร์ผลิต ${kw(sample.pv)}`,
+        emailHtml: htmlWrap(body, '#7c3aed'),
+      };
+    }
+
     default:
       return null;
   }

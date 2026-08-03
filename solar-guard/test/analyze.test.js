@@ -265,4 +265,72 @@ test('สรุปประจำวันคำนวณ kWh และเงิ
   assert.match(msg.telegram, /ประหยัดได้วันนี้/);
 });
 
+console.log('\nเฝ้าระวัง: ซื้อไฟมากกว่าที่โซลาร์ผลิตได้');
+
+// 2026-08-03 12:00 น. เวลาไทย = 05:00 UTC — อยู่ในช่วงแดดแรง (10:00-15:00)
+const SUN = Date.parse('2026-08-03T05:00:00Z');
+// 2026-08-03 20:00 น. เวลาไทย = 13:00 UTC — พ้นช่วงแดดแล้ว
+const EVENING = Date.parse('2026-08-03T13:00:00Z');
+const hasPvBelow = (out) => out.allEvents.some((e) => e.type === 'pv_below_grid');
+
+test('แดดแรงแต่ซื้อไฟมากกว่าโซลาร์ผลิต -> เตือน', () => {
+  const out = feed(emptyState(), [
+    { pv: 5, grid: 12 },
+    { pv: 5, grid: 12 },
+    { pv: 4, grid: 13 },
+  ], SUN);
+  assert.ok(hasPvBelow(out), 'ควรได้ข้อความเตือน');
+});
+
+test('กลางคืนต้องไม่เตือน แม้โซลาร์ผลิต 0 และซื้อไฟอยู่', () => {
+  const out = feed(emptyState(), [
+    { pv: 0, grid: 10 },
+    { pv: 0, grid: 10 },
+    { pv: 0, grid: 10 },
+    { pv: 0, grid: 10 },
+  ], EVENING);
+  assert.ok(!hasPvBelow(out), 'กลางคืนเข้าเงื่อนไขอยู่แล้วทุกคืน ต้องไม่เตือน');
+});
+
+test('โซลาร์ผลิตมากกว่าที่ซื้อ -> ไม่เตือน', () => {
+  const out = feed(emptyState(), [
+    { pv: 40, grid: 5 },
+    { pv: 42, grid: 4 },
+    { pv: 41, grid: 5 },
+  ], SUN);
+  assert.ok(!hasPvBelow(out), 'สถานการณ์ปกติต้องเงียบ');
+});
+
+test('เมฆบังรอบเดียวต้องไม่เตือน (ต้องต่อเนื่องก่อน)', () => {
+  const out = feed(emptyState(), [
+    { pv: 40, grid: 5 },
+    { pv: 3, grid: 12 }, // เมฆบังรอบเดียว
+    { pv: 40, grid: 5 },
+  ], SUN);
+  assert.ok(!hasPvBelow(out), 'ต้องรอให้ต่อเนื่องตาม SUSTAIN_POLLS ก่อน');
+});
+
+test('ตอนไฟแดงต้องเงียบ ไม่แย่งพื้นที่กับใบที่บอกให้ไปปิดอะไร', () => {
+  const out = feed(emptyState(), [
+    { pv: 2, grid: 40 },
+    { pv: 2, grid: 40 },
+    { pv: 2, grid: 40 },
+    { pv: 2, grid: 40 },
+  ], SUN);
+  assert.equal(out.state.level, 'red', 'สถานการณ์นี้ต้องเป็นไฟแดง');
+  assert.ok(!hasPvBelow(out), 'ตอนแดงต้องไม่ส่งใบวิเคราะห์ประสิทธิภาพมาแข่ง');
+});
+
+test('ข้อความที่ส่งต้องบอกทั้งสองสาเหตุที่เป็นไปได้', () => {
+  const out = feed(emptyState(), [
+    { pv: 5, grid: 12 },
+    { pv: 5, grid: 12 },
+    { pv: 4, grid: 13 },
+  ], SUN);
+  const ev = out.allEvents.find((e) => e.type === 'pv_below_grid');
+  const msg = buildMessage(ev, cfg);
+  assert.match(msg.telegram, /โหลดสูงผิดปกติ/);
+  assert.match(msg.telegram, /โซลาร์ผลิตได้น้อยผิดปกติ/);
+});
+
 console.log(`\n${pass} เทสต์ผ่าน${process.exitCode ? ' (มีบางข้อไม่ผ่าน)' : ' ทั้งหมด ✨'}\n`);

@@ -77,6 +77,21 @@ export function isTouOnPeak(cfg, ts = Date.now()) {
   return t.dow >= 1 && t.dow <= 5 && t.hour >= 9 && t.hour < 22;
 }
 
+/**
+ * ช่วงท้ายของ on-peak ที่อันตรายที่สุดของวัน (ค่าเริ่มต้น 15:00-22:00 จันทร์-ศุกร์)
+ *
+ * ทำไมช่วงนี้ถึงอันตราย: แดดเริ่มตกแต่โรงงานยังเดินเครื่องอยู่ โซลาร์ที่เคยแบกโหลด
+ * ให้ 20 kW เหลือไม่กี่ kW ส่วนที่หายไปกลายเป็นไฟหลวงทันทีโดยไม่มีใครทำอะไรผิด
+ * และยังอยู่ในช่วง on-peak ซึ่งเป็นช่วงเดียวที่การไฟฟ้าคิดค่าความต้องการพลังไฟฟ้า
+ * พีคที่เกิดตรงนี้จึงแพงที่สุด — ต้องเฝ้าเข้มกว่าเวลาอื่น
+ *
+ * ผูกกับ isTouOnPeak ไว้ เสาร์-อาทิตย์จึงไม่เข้าเงื่อนไขเอง (ไม่มีค่า demand อยู่แล้ว)
+ */
+export function isEveningWatch(cfg, ts = Date.now()) {
+  if (!isTouOnPeak(cfg, ts)) return false;
+  return thTime(ts).hour >= cfg.eveningWatchHour;
+}
+
 export const round1 = (n) => Math.round((Number(n) || 0) * 10) / 10;
 export const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 export const minutesBetween = (a, b) => Math.abs(a - b) / 60000;

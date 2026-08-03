@@ -114,6 +114,21 @@ export function loadConfig(env = {}) {
     // ส่วนต่างค่าไฟต่อเดือนถ้าโดนย้ายไปประเภทที่ 3 (ใช้บอกว่า "พลาดครั้งเดียวเสียเท่าไหร่")
     tierPenaltyPerMonth: num(env.TIER_PENALTY_PER_MONTH, 3000),
 
+    // ---------- เฝ้าระวังเข้มช่วงเย็น (ช่วงที่แพงที่สุดของวัน) ----------
+    // ตั้งแต่เวลานี้จนจบ on-peak (22:00) ระบบจะลดเกณฑ์เตือนลง เพื่อให้รู้ตัวเร็วขึ้น
+    // เพราะเป็นช่วงที่แดดตกแต่โหลดยังอยู่ และเป็นช่วงที่คิดค่าความต้องการพลังไฟฟ้า
+    eveningWatch: bool(env.EVENING_WATCH, true),
+    eveningWatchHour: num(env.EVENING_WATCH_HOUR, 15),
+    eveningWatchTightenKw: num(env.EVENING_WATCH_TIGHTEN_KW, 3), // ลดเกณฑ์เตือนลงกี่ kW
+
+    // ---------- เฝ้าระวัง: ซื้อไฟมากกว่าที่โซลาร์ผลิตได้ ----------
+    // เตือนเฉพาะช่วงแดดแรง (SUN_START_HOUR ถึง SUN_END_HOUR) เท่านั้น
+    // ถ้าเปิดให้เตือนทั้งวันจะเตือนทุกคืน เพราะกลางคืนโซลาร์ผลิต 0 อยู่แล้ว
+    pvBelowGridWatch: bool(env.PV_BELOW_GRID_WATCH, true),
+    // ไฟหลวงต้องมากกว่าโซลาร์เกินกี่ kW ถึงจะนับ (กันเด้งตอนสองค่าไล่เลี่ยกัน)
+    pvBelowGridMarginKw: num(env.PV_BELOW_GRID_MARGIN_KW, 1),
+    pvBelowGridRepeatMin: num(env.PV_BELOW_GRID_REPEAT_MIN, 120), // ย้ำซ้ำห่างกันกี่นาที
+
     // ---------- ตัดโหลดอัตโนมัติ ----------
     // off    = ไม่ทำอะไร แค่เตือนคน (ค่าเริ่มต้น — ปลอดภัยที่สุด)
     // dryrun = คิดครบทุกอย่างและรายงานว่าจะสั่งอะไร แต่ไม่สั่งจริง (ใช้ทดสอบ 1-2 สัปดาห์)

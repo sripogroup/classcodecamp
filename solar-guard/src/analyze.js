@@ -27,6 +27,8 @@ export function emptyState() {
     lastBossAt: 0,
     lastNightAlertAt: 0,
     lastInverterAlertAt: 0,
+    lastPvBelowGridAt: 0,
+    pvBelowGridStreak: 0, // ซื้อไฟมากกว่าที่โซลาร์ผลิตได้ติดกันกี่รอบแล้ว
     lastSilenceAlertAt: 0,
     lastDemandAlertAt: 0,
     lastPeakAlertKw: 0,
@@ -43,21 +45,38 @@ export function emptyState() {
  * ระดับดิบตามค่าปัจจุบัน โดยใช้ hysteresis เทียบกับระดับที่เป็นอยู่
  * ขาขึ้นใช้เส้นเต็ม / ขาลงต้องต่ำกว่าเส้นลบ hysteresis ถึงจะถอย
  */
-function rawLevel(gridKw, cfg, current) {
+/**
+ * เกณฑ์เตือนที่ใช้จริง ณ เวลานั้น
+ *
+ * ช่วง 15:00 จนจบ on-peak จะเข้มขึ้น เพราะแดดตกแล้วแต่โหลดยังอยู่ และเป็นช่วงเดียว
+ * ที่การไฟฟ้าคิดค่าความต้องการพลังไฟฟ้า พีคที่เกิดตรงนี้จึงแพงกว่าพีคเวลาอื่น
+ */
+export function activeThresholds(cfg, ts) {
+  if (!cfg.eveningWatch || !isEveningWatch(cfg, ts)) {
+    return { warnKw: cfg.warnKw, critKw: cfg.critKw, evening: false };
+  }
+  return {
+    warnKw: Math.max(1, cfg.warnKw - cfg.eveningWatchTightenKw),
+    critKw: Math.max(2, cfg.critKw - cfg.eveningWatchTightenKw),
+    evening: true,
+  };
+}
+
+function rawLevel(gridKw, cfg, current, th) {
   const h = cfg.hysteresisKw;
-  const warnOff = cfg.warnKw - h;
-  const critOff = cfg.critKw - h;
+  const warnOff = th.warnKw - h;
+  const critOff = th.critKw - h;
 
   if (current === LEVELS.RED) {
     if (gridKw >= critOff) return LEVELS.RED;
     return gridKw >= warnOff ? LEVELS.YELLOW : LEVELS.GREEN;
   }
   if (current === LEVELS.YELLOW) {
-    if (gridKw >= cfg.critKw) return LEVELS.RED;
+    if (gridKw >= th.critKw) return LEVELS.RED;
     return gridKw >= warnOff ? LEVELS.YELLOW : LEVELS.GREEN;
   }
-  if (gridKw >= cfg.critKw) return LEVELS.RED;
-  return gridKw >= cfg.warnKw ? LEVELS.YELLOW : LEVELS.GREEN;
+  if (gridKw >= th.critKw) return LEVELS.RED;
+  return gridKw >= th.warnKw ? LEVELS.YELLOW : LEVELS.GREEN;
 }
 
 /** หาสาเหตุ โดยเทียบกับเมื่อ ~15 นาทีก่อน */
@@ -121,6 +140,13 @@ export function evaluate(prevState, sample, cfg, now = Date.now()) {
   const raw = rawLevel(grid, cfg, state.level);
   if (state.streak?.level === raw) state.streak = { level: raw, count: state.streak.count + 1 };
   else state.streak = { level: raw, count: 1 };
+
+  // นับแยกต่างหากว่าซื้อไฟมากกว่าที่โซลาร์ผลิตได้ติดกันกี่รอบแล้ว
+  // นับเฉพาะช่วงแดดแรง นอกช่วงนั้นล้างทิ้ง เพราะกลางคืนเข้าเงื่อนไขนี้อยู่แล้วทุกคืน
+  state.pvBelowGridStreak =
+    isPeakSun(cfg, sample.t) && grid > (sample.pv ?? 0) + cfg.pvBelowGridMarginKw
+      ? (state.pvBelowGridStreak || 0) + 1
+      : 0;
 
   // ---------- 2) ยืนยันระดับ (ต้องต่อเนื่องจริง) ----------
   const goingUp = RANK[raw] > RANK[state.level];
@@ -228,6 +254,28 @@ export function evaluate(prevState, sample, cfg, now = Date.now()) {
     ) {
       events.push({ type: 'inverter', ...ctx });
       state.lastInverterAlertAt = now;
+    }
+
+    // ช่วงแดดดีที่สุดของวัน แต่ซื้อไฟมากกว่าที่โซลาร์ผลิตได้
+    //
+    // จำกัดไว้เฉพาะช่วงแดดแรง (ค่าเริ่มต้น 10:00-15:00) โดยตั้งใจ — ถ้าเช็คทั้งวัน
+    // มันจะเตือนทุกคืนเพราะกลางคืนโซลาร์ผลิต 0 อยู่แล้ว แล้วคนจะเลิกสนใจการเตือน
+    //
+    // ต้องเกินติดกันหลายรอบก่อนถึงเตือน เมฆบังแป๊บเดียวไม่นับ
+    //
+    // และเงียบทันทีถ้าตอนนี้ไฟแดงอยู่ — ใบนี้เป็นข้อสังเกตไว้ให้ไปหาสาเหตุทีหลัง
+    // ไม่ใช่เรื่องด่วน ตอนที่กำลังจะชนเพดานคนต้องอ่านใบที่บอกว่า "ไปปิดอะไร"
+    // ไม่ใช่มาอ่านใบวิเคราะห์ประสิทธิภาพแข่งกันสองใบพร้อมกัน
+    if (
+      cfg.pvBelowGridWatch &&
+      state.level !== LEVELS.RED &&
+      isPeakSun(cfg, now) &&
+      grid > sample.pv + cfg.pvBelowGridMarginKw &&
+      state.pvBelowGridStreak >= cfg.sustainPolls &&
+      minutesBetween(now, state.lastPvBelowGridAt || 0) >= cfg.pvBelowGridRepeatMin
+    ) {
+      events.push({ type: 'pv_below_grid', ...ctx });
+      state.lastPvBelowGridAt = now;
     }
   }
 
