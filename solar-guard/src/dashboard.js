@@ -290,7 +290,10 @@ export function dashboardHtml(cfg, token) {
 
   <footer>
     <span id="updated">—</span>
-    <button id="soundBtn">🔇 เปิดเสียงเตือน</button>
+    <span style="display:flex;gap:10px;flex-wrap:wrap">
+      <button id="soundBtn">🔇 เปิดเสียงเตือน</button>
+      <button id="testBtn">🔔 ทดสอบเสียงไซเรน</button>
+    </span>
   </footer>
 </div>
 
@@ -313,6 +316,44 @@ btn.onclick = () => {
   } else stopSiren();
 };
 paintBtn();
+
+/* ทดสอบเสียงได้โดยไม่ต้องรอให้ไฟหลวงพุ่งจริง
+   ก่อนหน้านี้ทางเดียวที่จะได้ยินไซเรนคือรอให้สถานะเป็นแดงจริง ซึ่งแปลว่า
+   ไม่มีใครรู้เลยว่าเสียงใช้ได้ไหม จนกว่าจะถึงวินาทีที่พึ่งมันไม่ได้แล้ว
+   ปุ่มนี้เปิดเสียงให้เองด้วย เพราะการกดปุ่มคือ user gesture ที่เบราว์เซอร์ต้องการ */
+const testBtn = document.getElementById('testBtn');
+let testing = false;
+testBtn.onclick = () => {
+  if (testing) return;
+  testing = true;
+  if (!soundOn) {
+    soundOn = true;
+    localStorage.setItem('solarSound', '1');
+    paintBtn();
+  }
+  ensureAudio();
+  try { if('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch(e){}
+
+  const box = document.getElementById('status');
+  const wasClass = box.className;
+  box.className = 'status red';                    /* ให้เห็นด้วยว่าตอนแดงหน้าตาเป็นยังไง */
+  testBtn.textContent = '🔊 กำลังทดสอบ…';
+
+  let n = 0;
+  siren();
+  const iv = setInterval(() => {
+    if (++n >= 3) {
+      clearInterval(iv);
+      box.className = wasClass;
+      testBtn.textContent = '🔔 ทดสอบเสียงไซเรน';
+      testing = false;
+      paintAudioWarn();
+      if (audioBlocked()) alert('เบราว์เซอร์ยังบล็อกเสียงอยู่ ลองแตะที่หน้าจอแล้วกดใหม่อีกครั้ง');
+      return;
+    }
+    siren();
+  }, 1400);
+};
 
 /* เบราว์เซอร์ห้ามเล่นเสียงจนกว่าคนจะแตะหน้าเว็บก่อน จอที่เปิดค้างไว้เฉย ๆ
    จึงเงียบสนิทตอนเกิดเรื่อง โดยที่ไม่มีใครรู้ว่ามันเงียบ
