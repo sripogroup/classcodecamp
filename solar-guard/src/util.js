@@ -27,10 +27,18 @@ export function thDateKey(ts = Date.now()) {
   return `${t.year}-${pad(t.month)}-${pad(t.day)}`;
 }
 
+const TH_MONTH_SHORT = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+
+/** "3 ส.ค. 13:45" — สั้นพอที่จะแปะท้ายบรรทัดในแชทได้โดยไม่ตัดบรรทัด */
+export function thWhen(ts) {
+  if (!ts) return '–';
+  const t = thTime(ts);
+  return `${t.day} ${TH_MONTH_SHORT[t.month - 1]} ${pad(t.hour)}:${pad(t.minute)}`;
+}
+
 export function thDateThai(ts = Date.now()) {
   const t = thTime(ts);
-  const m = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
-  return `${t.day} ${m[t.month - 1]} ${t.year + 543}`;
+  return `${t.day} ${TH_MONTH_SHORT[t.month - 1]} ${t.year + 543}`;
 }
 
 export const pad = (n) => String(n).padStart(2, '0');

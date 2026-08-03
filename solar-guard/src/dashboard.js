@@ -59,6 +59,18 @@ export function dashboardHtml(cfg, token) {
   .winrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px;margin-top:12px}
   .wv{font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:4px}
   .wv.alarm{color:#ef4444}
+  #monthCard{margin-top:16px}
+  .peaks{width:100%;border-collapse:collapse;margin-top:12px}
+  .peaks th{font-size:13px;color:#64748b;font-weight:600;text-align:left;padding:0 10px 8px 0;border-bottom:1px solid #1e293b}
+  .peaks th:nth-child(2),.peaks td:nth-child(2){text-align:right;white-space:nowrap}
+  .peaks th:nth-child(3),.peaks td:nth-child(3){text-align:right;white-space:nowrap}
+  .peaks td{padding:11px 10px 11px 0;border-bottom:1px solid #1e293b26;font-size:17px;color:#cbd5e1}
+  .peaks td:nth-child(2){font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;color:#f8fafc}
+  .peaks td:nth-child(3){font-size:15px;color:#94a3b8;font-variant-numeric:tabular-nums}
+  .peaks small{display:block;font-size:12px;color:#64748b;margin-top:3px}
+  /* แถวแรกคือตัวที่การไฟฟ้าใช้คิดเงิน ต้องเด่นกว่าแถวอื่นชัด ๆ */
+  .peaks tr.hi td{color:#f8fafc}
+  .peaks tr.hi td:nth-child(2){color:#f59e0b;font-size:26px}
   .actions{margin-top:20px;background:#111c33;border:1px solid #1e293b;border-radius:16px;padding:20px}
   .actions h2{font-size:16px;color:#f8fafc;margin-bottom:14px}
   .actions ol{padding-left:22px;line-height:2;color:#cbd5e1;font-size:17px}
@@ -132,6 +144,32 @@ export function dashboardHtml(cfg, token) {
       <div class="value" id="cov">–<span class="unit">%</span></div>
       <div class="bar"><span id="covbar" style="width:0%"></span></div>
     </div>
+  </div>
+
+  <div class="card" id="monthCard" style="display:none">
+    <div class="label">📅 สูงสุดของเดือน <span id="mkey"></span></div>
+    <table class="peaks">
+      <thead><tr><th>รายการ</th><th>สูงสุด</th><th>เมื่อ</th></tr></thead>
+      <tbody>
+        <tr class="hi">
+          <td>ไฟจากการไฟฟ้า<small>เฉลี่ย 15 นาที — ตัวที่การไฟฟ้าใช้คิดเงิน</small></td>
+          <td id="pkDemand">–</td><td id="pkDemandAt">–</td>
+        </tr>
+        <tr>
+          <td>ไฟจากการไฟฟ้า<small>ค่า ณ ขณะนั้น</small></td>
+          <td id="pkGrid">–</td><td id="pkGridAt">–</td>
+        </tr>
+        <tr>
+          <td>โหลดรวมทั้งโรงงาน<small>ค่า ณ ขณะนั้น</small></td>
+          <td id="pkLoad">–</td><td id="pkLoadAt">–</td>
+        </tr>
+        <tr>
+          <td>โซลาร์ผลิตได้<small>ค่า ณ ขณะนั้น</small></td>
+          <td id="pkPv">–</td><td id="pkPvAt">–</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="label" style="margin-top:12px">แถวแรกคือตัวที่ตัดสินว่าจะโดนย้ายประเภทค่าไฟไหม อีก 3 แถวไว้ดูย้อนหลังว่าวันนั้นเกิดอะไรขึ้น</div>
   </div>
 
   <div class="card" id="shedCard" style="display:none;margin-top:16px;border-color:#7c3aed">
@@ -211,6 +249,15 @@ const HEADLINES = {
 
 function fmt(n, d){ return n===null||n===undefined ? '–' : Number(n).toFixed(d===undefined?1:d); }
 
+/* "3 ส.ค. 13:45" — บวก 7 ชม.เอง ไม่พึ่งเวลาเครื่อง เพราะจอติดผนังบางเครื่องตั้งโซนผิด */
+const TH_MON = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+function thWhen(ts){
+  if(!ts) return '–';
+  const d = new Date(ts + 7*3600*1000);
+  const p = n => String(n).padStart(2,'0');
+  return d.getUTCDate() + ' ' + TH_MON[d.getUTCMonth()] + ' ' + p(d.getUTCHours()) + ':' + p(d.getUTCMinutes());
+}
+
 async function tick(){
   document.getElementById('clock').textContent =
     new Date().toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Bangkok'}) + ' น.';
@@ -253,6 +300,27 @@ function render(st, samples){
     document.getElementById('mnote').textContent = m.breached
       ? '🛑 เดือนนี้เกินเพดานไปแล้ว — เริ่มนับใหม่เดือนหน้า'
       : 'ใช้ไปแล้ว ' + m.usedPct + '% ของเพดาน • เกิน ' + m.limitKw + ' kW แม้ครั้งเดียว = ค่าไฟประเภทที่ 3 นาน 12 เดือน';
+  }
+
+  /* ---- สูงสุดของเดือน แยกทีละสาย พร้อมวันเวลาที่เกิด ---- */
+  const mc = document.getElementById('monthCard');
+  const mp = st.monthPeaks;
+  if (m) {
+    mc.style.display = 'block';
+    document.getElementById('mkey').textContent = m.monthKey || '';
+    /* แถวแรกใช้ค่าที่ล็อกแล้ว ไม่ใช่ค่า live — ถ้าหน้าต่างที่กำลังเดินอยู่ยังไม่จบ
+       มันยังเปลี่ยนได้ เอามาโชว์คู่กับ "วันไหน" จะทำให้เข้าใจผิดว่าเกิดขึ้นแล้ว */
+    document.getElementById('pkDemand').textContent = fmt(m.lockedPeakKw) + ' kW';
+    document.getElementById('pkDemandAt').textContent = thWhen(m.peakAt);
+    const rows = [['pkGrid', mp && mp.gridKw, mp && mp.gridAt],
+                  ['pkLoad', mp && mp.loadKw, mp && mp.loadAt],
+                  ['pkPv',   mp && mp.pvKw,   mp && mp.pvAt]];
+    for (const [id, kw, at] of rows) {
+      document.getElementById(id).textContent = kw ? fmt(kw) + ' kW' : '–';
+      document.getElementById(id + 'At').textContent = kw ? thWhen(at) : '–';
+    }
+  } else {
+    mc.style.display = 'none';
   }
 
   /* ---- หน้าต่าง 15 นาทีปัจจุบัน ---- */

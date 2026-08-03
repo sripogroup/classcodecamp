@@ -20,7 +20,7 @@ import { setTelegramWebhook } from './notify/telegram.js';
 import { sendChat } from './notify/chat.js';
 import { sendEmail } from './notify/email.js';
 import { dashboardHtml } from './dashboard.js';
-import { hhmm, isQuietHours, minutesBetween, round1, thDateKey } from './util.js';
+import { hhmm, isQuietHours, minutesBetween, round1, thDateKey, thWhen } from './util.js';
 
 const STATE_KEY = 'state';
 const STALE_MINUTES = 20; // ไม่ได้ข้อมูลนานเกินนี้ = ถือว่าระบบเงียบ
@@ -577,10 +577,13 @@ async function handleTelegramWebhook(request, env, cfg) {
           // ไม่ได้แปลว่าสูงสุด เขียนเต็มไปเลยจะได้ไม่มีใครอ่านผิด
           `📅 <b>สูงสุดของเดือน ${escapeTg(h.monthKey || '')}</b>`,
           `   ไฟหลวง <b>${round1(h.livePeakKw)} kW</b> (เฉลี่ย 15 นาที ตัวที่การไฟฟ้าคิดเงิน)`,
+          // วันเวลาผูกกับ peakKw ที่ล็อกแล้ว ไม่ใช่ livePeakKw — ถ้าหน้าต่างปัจจุบันกำลังทำสถิติใหม่
+          // มันยังไม่จบ จะบอกว่า "เกิดเมื่อ" ไม่ได้
+          h.peakAt ? `   ทำไว้เมื่อ ${thWhen(h.peakAt)} น. (${round1(h.peakKw)} kW)` : '',
           `   เพดานที่ตั้งไว้ ${h.limitKw} kW — เหลืออีก ${round1(h.headroomKw)} kW`,
-          mp
-            ? `   โหลดรวมสูงสุด ${round1(mp.loadKw)} kW · โซลาร์สูงสุด ${round1(mp.pvKw)} kW · ไฟหลวงสูงสุด ณ ขณะนั้น ${round1(mp.gridKw)} kW`
-            : '',
+          mp ? `   โหลดรวมสูงสุด ${round1(mp.loadKw)} kW — ${thWhen(mp.loadAt)} น.` : '',
+          mp ? `   โซลาร์สูงสุด ${round1(mp.pvKw)} kW — ${thWhen(mp.pvAt)} น.` : '',
+          mp ? `   ไฟหลวงสูงสุด ณ ขณะนั้น ${round1(mp.gridKw)} kW — ${thWhen(mp.gridAt)} น.` : '',
           offZones.length ? `⛔ ถูกสั่งปิดอยู่: ${offZones.map((z) => escapeTg(z.name)).join(', ')}` : '',
           `ข้อมูลเมื่อ ${hhmm(s.t)} น.`,
         ]
@@ -665,6 +668,21 @@ async function publicState(env, cfg) {
       breached: headroom.breached,
       monthKey: headroom.monthKey,
     },
+
+    // สูงสุดของเดือนแยกทีละสาย เป็นค่า ณ ขณะนั้น (ไม่ใช่เฉลี่ย 15 นาที) พร้อมเวลาที่เกิด
+    // เช็ค key ก่อนเสมอ ไม่งั้นวันที่ 1 ของเดือนใหม่จะเอาสถิติเดือนก่อนมาโชว์
+    monthPeaks:
+      state.monthPeaks && state.monthPeaks.key === headroom.monthKey
+        ? {
+            gridKw: r(state.monthPeaks.gridKw),
+            gridAt: state.monthPeaks.gridAt || 0,
+            loadKw: r(state.monthPeaks.loadKw),
+            loadAt: state.monthPeaks.loadAt || 0,
+            pvKw: r(state.monthPeaks.pvKw),
+            pvAt: state.monthPeaks.pvAt || 0,
+          }
+        : null,
+
     todayPeakKw: r(demand.todayPeakKw || 0),
     autoshed: {
       mode: cfg.autoshedMode,
