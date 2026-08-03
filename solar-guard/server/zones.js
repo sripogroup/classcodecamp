@@ -319,7 +319,9 @@ export class Zones {
       return this.def(slug);
     }
 
-    const newSlug = 'z-' + Date.now().toString(36);
+    // เติมตัวนับต่อท้ายถ้าชนกัน — เพิ่มสองโซนรวดเดียวจะได้เวลาเดียวกันเป๊ะ
+    let newSlug = 'z-' + Date.now().toString(36);
+    for (let i = 2; this.def(newSlug); i++) newSlug = 'z-' + Date.now().toString(36) + '-' + i;
     const maxSort = this.db.prepare('SELECT max(sort) m FROM zone_defs').get().m ?? 0;
     // โซนใหม่ต่อท้ายลำดับการปิด = ปิดเป็นอันหลังสุด จนกว่าจะมีคนบอกว่าควรอยู่ตรงไหน
     // ปลอดภัยกว่าเดาให้ปิดก่อน เพราะระบบยังไม่รู้ว่าปิดตัวนี้แล้วกระทบใคร

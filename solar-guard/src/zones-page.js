@@ -245,10 +245,19 @@ function render() {
       '<button data-del="' + z.slug + '" title="เอาออกจากรายการ">🗑</button></span>';
     return '<div class="' + cls + '"><div class="info"><div class="zn">' + z.name +
       (z.protectedZone ? '<span class="badge lock">🔒 ห้ามปิด</span>' : '') +
-      '</div><div class="zs">' + sub.join(' · ') + '</div>' + warn + '</div>' + val + btn + tools + '</div>';
+      '</div><div class="zs">' + sub.join(' · ') + '</div>' + warn + '</div>' + val + okBtn + btn + tools + '</div>';
   }).join('');
 
   document.querySelectorAll('[data-go]').forEach((b) => { b.onclick = () => start(b.dataset.go); });
+  document.querySelectorAll('[data-ok]').forEach((b) => {
+    b.onclick = async () => {
+      try {
+        const out = await api('/api/loads/confirm', { id: Number(b.dataset.ok) });
+        msg('รับค่าแล้ว: <b>' + out.result.name + '</b> = ' + out.result.steadyKw.toFixed(1) + ' kW');
+        await load();
+      } catch (e) { msg(e.message, 'err'); }
+    };
+  });
   document.querySelectorAll('[data-edit]').forEach((b) => { b.onclick = () => editZone(b.dataset.edit); });
   document.querySelectorAll('[data-del]').forEach((b) => { b.onclick = () => removeZone(b.dataset.del); });
 
