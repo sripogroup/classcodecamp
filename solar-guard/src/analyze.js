@@ -8,7 +8,7 @@
  *   4. ทุกข้อความต้องบอกว่า "ให้ไปปิดอะไร" ไม่ใช่แค่บอกว่ามีปัญหา
  */
 
-import { isNight, isPeakSun, isWorkTime, minutesBetween, round1 } from './util.js';
+import { isEveningWatch, isNight, isPeakSun, isWorkTime, minutesBetween, round1 } from './util.js';
 
 export const LEVELS = { GREEN: 'green', YELLOW: 'yellow', RED: 'red' };
 const RANK = { green: 0, yellow: 1, red: 2 };
@@ -42,10 +42,6 @@ export function emptyState() {
 }
 
 /**
- * ระดับดิบตามค่าปัจจุบัน โดยใช้ hysteresis เทียบกับระดับที่เป็นอยู่
- * ขาขึ้นใช้เส้นเต็ม / ขาลงต้องต่ำกว่าเส้นลบ hysteresis ถึงจะถอย
- */
-/**
  * เกณฑ์เตือนที่ใช้จริง ณ เวลานั้น
  *
  * ช่วง 15:00 จนจบ on-peak จะเข้มขึ้น เพราะแดดตกแล้วแต่โหลดยังอยู่ และเป็นช่วงเดียว
@@ -62,6 +58,10 @@ export function activeThresholds(cfg, ts) {
   };
 }
 
+/**
+ * ระดับดิบตามค่าปัจจุบัน โดยใช้ hysteresis เทียบกับระดับที่เป็นอยู่
+ * ขาขึ้นใช้เส้นเต็ม / ขาลงต้องต่ำกว่าเส้นลบ hysteresis ถึงจะถอย
+ */
 function rawLevel(gridKw, cfg, current, th) {
   const h = cfg.hysteresisKw;
   const warnOff = th.warnKw - h;
@@ -137,7 +137,8 @@ export function evaluate(prevState, sample, cfg, now = Date.now()) {
   const grid = sample.grid ?? 0;
 
   // ---------- 1) อัปเดต streak ----------
-  const raw = rawLevel(grid, cfg, state.level);
+  const th = activeThresholds(cfg, now);
+  const raw = rawLevel(grid, cfg, state.level, th);
   if (state.streak?.level === raw) state.streak = { level: raw, count: state.streak.count + 1 };
   else state.streak = { level: raw, count: 1 };
 
@@ -181,7 +182,7 @@ export function evaluate(prevState, sample, cfg, now = Date.now()) {
   // ---------- 3) ข้อมูลประกอบ ----------
   const cause = detectCause(state.samples, sample, cfg);
   const d15 = demand15(state.samples, sample);
-  const excess = Math.max(0, grid - (state.level === LEVELS.RED ? 0 : cfg.warnKw));
+  const excess = Math.max(0, grid - (state.level === LEVELS.RED ? 0 : th.warnKw));
   const actions = state.level === LEVELS.GREEN ? [] : pickActions(cfg, state.level === LEVELS.RED ? grid : excess);
 
   const ctx = { sample, cause, demand15: d15, actions, level: state.level, excessKw: excess };
@@ -293,7 +294,7 @@ export function evaluate(prevState, sample, cfg, now = Date.now()) {
   state.lastOkAt = now;
   state.lastError = null;
 
-  return { state, events, cause, demand15: d15, actions };
+  return { state, events, cause, demand15: d15, actions, thresholds: th };
 }
 
 /**

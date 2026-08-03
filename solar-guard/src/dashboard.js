@@ -86,7 +86,7 @@ export function dashboardHtml(cfg, token) {
   .actions h2{font-size:16px;color:#f8fafc;margin-bottom:14px}
   .actions ol{padding-left:22px;line-height:2;color:#cbd5e1;font-size:17px}
   .actions b{color:#fca5a5}
-  canvas{width:100%;height:190px;display:block;margin-top:12px}
+  canvas{width:100%;height:230px;display:block;margin-top:12px}
   footer{margin-top:24px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;color:#64748b;font-size:13px}
   button{background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:10px;padding:10px 18px;font-size:15px;cursor:pointer;font-family:inherit}
   button.on{background:#166534;border-color:#22c55e;color:#dcfce7}
@@ -108,6 +108,8 @@ export function dashboardHtml(cfg, token) {
       <div class="sub" id="subline">เชื่อมต่อกับ FusionSolar</div>
     </div>
   </div>
+
+  <div id="eveBanner" style="display:none;margin-top:16px;background:#f59e0b1a;border:1px solid #f59e0b66;border-radius:14px;padding:14px 18px;font-size:17px;line-height:1.55;color:#fcd34d"></div>
 
   <div class="card ceiling" id="ceilingCard">
     <div class="ceiling-top">
@@ -201,6 +203,7 @@ export function dashboardHtml(cfg, token) {
       <span><i class="dot" style="background:#f59e0b"></i>ไฟจากการไฟฟ้า</span>
       <span><i class="dot" style="background:#22c55e"></i>โซลาร์</span>
       <span><i class="dot" style="background:#60a5fa"></i>โหลดรวม</span>
+      <span><i class="dot" style="background:#f59e0b55"></i>แถบส้ม = ช่วงเฝ้าระวังเข้ม</span>
     </div>
   </div>
 
@@ -240,6 +243,7 @@ export function dashboardHtml(cfg, token) {
 
 <script>
 const TOKEN = ${JSON.stringify(q)};
+const WATCH_HOUR = ${Number(cfg.eveningWatchHour) || 15};
 let soundOn = localStorage.getItem('solarSound') === '1';
 let audioCtx = null, sirenTimer = null, lastLevel = 'green';
 
@@ -344,6 +348,20 @@ function render(st, samples){
       : 'ใช้ไปแล้ว ' + m.usedPct + '% ของเพดาน • เกิน ' + m.limitKw + ' kW แม้ครั้งเดียว = ค่าไฟประเภทที่ 3 นาน 12 เดือน';
   }
 
+  /* ---- แถบเฝ้าระวังเข้มช่วงเย็น ---- */
+  const eb = document.getElementById('eveBanner');
+  const ev = st.eveningWatch;
+  if (ev && ev.active) {
+    eb.style.display = 'block';
+    eb.innerHTML = '<b>⚠️ ช่วงเฝ้าระวังเข้ม (หลัง ' + ev.fromHour + ':00 น.)</b><br>'
+      + 'แดดเริ่มตกแต่เครื่องยังเดินอยู่ ส่วนที่โซลาร์เคยแบกให้จะกลายเป็นไฟหลวงเอง '
+      + 'และช่วงนี้ยังอยู่ใน Peak ที่การไฟฟ้าคิดค่าความต้องการพลังไฟฟ้า พีคที่เกิดตอนนี้จึงแพงที่สุดของวัน<br>'
+      + 'เกณฑ์เตือนลดลงชั่วคราวเป็น <b>เหลือง ' + fmt(st.warnKw,0) + ' / แดง ' + fmt(st.critKw,0) + ' kW</b>'
+      + ' (ปกติ ' + fmt(ev.baseWarnKw,0) + ' / ' + fmt(ev.baseCritKw,0) + ')';
+  } else {
+    eb.style.display = 'none';
+  }
+
   /* ---- ค่าไฟวันนี้ / เดือนนี้ ---- */
   const bc = document.getElementById('billCard');
   const bl = st.bill;
@@ -441,19 +459,72 @@ function escapeHtml(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<'
 
 function drawChart(samples){
   const c = document.getElementById('chart'), ctx = c.getContext('2d');
-  const w = c.width = c.clientWidth * devicePixelRatio, h = c.height = 190 * devicePixelRatio;
+  const dpr = devicePixelRatio;
+  const w = c.width = c.clientWidth * dpr, h = c.height = 230 * dpr;
   ctx.clearRect(0,0,w,h);
   if(samples.length < 2) return;
+
+  /* เว้นขอบไว้ใส่ตัวเลข kW ด้านซ้าย และเวลาด้านล่าง */
+  const padL = 40*dpr, padR = 8*dpr, padT = 8*dpr, padB = 24*dpr;
+  const pw = w - padL - padR, ph = h - padT - padB;
+
+  const t0 = samples[0].t, t1 = samples[samples.length-1].t;
+  const span = Math.max(1, t1 - t0);
   const max = Math.max(10, ...samples.map(s=>Math.max(s.pv||0, s.load||0, s.grid||0))) * 1.15;
-  const x = i => (i/(samples.length-1))*w;
-  const y = v => h - (Math.max(0,v)/max)*(h-10) - 5;
 
-  ctx.strokeStyle='#1e293b'; ctx.lineWidth=devicePixelRatio;
-  for(let i=1;i<4;i++){ const gy=(h/4)*i; ctx.beginPath(); ctx.moveTo(0,gy); ctx.lineTo(w,gy); ctx.stroke(); }
+  /* วางตามเวลาจริง ไม่ใช่ตามลำดับจุด — ช่วงที่ข้อมูลขาดจะได้เห็นเป็นช่องว่างจริง ๆ
+     ไม่ใช่ถูกบีบให้ดูเหมือนต่อเนื่อง ซึ่งทำให้อ่านเวลาผิด */
+  const x = t => padL + ((t - t0)/span)*pw;
+  const y = v => padT + (1 - Math.max(0,v)/max)*ph;
 
+  /* แถบเฝ้าระวังเข้มช่วงเย็น (15:00 เป็นต้นไป) ระบายพื้นหลังให้เห็นว่าอันตรายช่วงไหน */
+  const dayStart = t => { const d = new Date(t + 7*3600000); d.setUTCHours(0,0,0,0); return d.getTime() - 7*3600000; };
+  for(let d = dayStart(t0); d <= t1; d += 86400000){
+    const a = d + WATCH_HOUR*3600000, b = d + 22*3600000;
+    if(b < t0 || a > t1) continue;
+    const xa = x(Math.max(a,t0)), xb = x(Math.min(b,t1));
+    ctx.fillStyle = '#f59e0b14';
+    ctx.fillRect(xa, padT, Math.max(1,xb-xa), ph);
+    ctx.strokeStyle = '#f59e0b55'; ctx.lineWidth = dpr; ctx.setLineDash([4*dpr,4*dpr]);
+    ctx.beginPath(); ctx.moveTo(xa, padT); ctx.lineTo(xa, padT+ph); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  /* เส้นแนวนอน + ตัวเลข kW */
+  ctx.font = (11*dpr)+'px system-ui,sans-serif';
+  ctx.fillStyle = '#64748b'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for(let i=0;i<=4;i++){
+    const v = (max/4)*i, gy = y(v);
+    ctx.strokeStyle='#1e293b'; ctx.lineWidth=dpr;
+    ctx.beginPath(); ctx.moveTo(padL,gy); ctx.lineTo(w-padR,gy); ctx.stroke();
+    ctx.fillText(Math.round(v), padL-6*dpr, gy);
+  }
+
+  /* เส้นแนวตั้ง + เวลา — เลือกระยะห่างให้ป้ายไม่ทับกัน */
+  const hours = span/3600000;
+  const step = hours > 14 ? 4 : hours > 7 ? 2 : 1;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  const first = Math.ceil((t0 + 7*3600000)/(step*3600000))*(step*3600000) - 7*3600000;
+  for(let t = first; t <= t1; t += step*3600000){
+    const gx = x(t);
+    ctx.strokeStyle='#1e293b'; ctx.lineWidth=dpr;
+    ctx.beginPath(); ctx.moveTo(gx,padT); ctx.lineTo(gx,padT+ph); ctx.stroke();
+    const hh = new Date(t + 7*3600000).getUTCHours();
+    ctx.fillStyle = hh >= WATCH_HOUR && hh < 22 ? '#f59e0b' : '#64748b';
+    ctx.fillText(String(hh).padStart(2,'0')+':00', gx, padT+ph+6*dpr);
+  }
+
+  /* ข้อมูลขาดเกิน 20 นาที = ยกปากกา ไม่ลากเส้นข้ามช่องว่าง
+     ไม่งั้นช่วงที่เครื่องอ่านปิดจะกลายเป็นเส้นตรงสวย ๆ ที่ไม่เคยเกิดขึ้นจริง */
+  const GAP = 20*60000;
   const line = (key,color) => {
-    ctx.beginPath(); ctx.strokeStyle=color; ctx.lineWidth=2.5*devicePixelRatio; ctx.lineJoin='round';
-    samples.forEach((s,i)=> i? ctx.lineTo(x(i), y(s[key])) : ctx.moveTo(x(i), y(s[key])));
+    ctx.strokeStyle=color; ctx.lineWidth=2.5*dpr; ctx.lineJoin='round'; ctx.lineCap='round';
+    ctx.beginPath();
+    let pen = false;
+    samples.forEach((s,i)=>{
+      if(i && s.t - samples[i-1].t > GAP) pen = false;
+      if(pen) ctx.lineTo(x(s.t), y(s[key])); else { ctx.moveTo(x(s.t), y(s[key])); pen = true; }
+    });
     ctx.stroke();
   };
   line('load','#60a5fa'); line('pv','#22c55e'); line('grid','#f59e0b');

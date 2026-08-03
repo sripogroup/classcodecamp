@@ -5,7 +5,7 @@
 
 import assert from 'node:assert';
 import { loadConfig } from '../src/config.js';
-import { emptyState, evaluate, pickActions } from '../src/analyze.js';
+import { activeThresholds, emptyState, evaluate, pickActions } from '../src/analyze.js';
 import { buildDailySummary, buildMessage } from '../src/messages.js';
 
 const cfg = loadConfig({
@@ -331,6 +331,54 @@ test('ข้อความที่ส่งต้องบอกทั้ง�
   const msg = buildMessage(ev, cfg);
   assert.match(msg.telegram, /โหลดสูงผิดปกติ/);
   assert.match(msg.telegram, /โซลาร์ผลิตได้น้อยผิดปกติ/);
+});
+
+console.log('\nเฝ้าระวังเข้มช่วงเย็น (15:00 จนจบ on-peak)');
+
+const evcfg = loadConfig({
+  WARN_IMPORT_KW: '16',
+  CRIT_IMPORT_KW: '19',
+  EVENING_WATCH_HOUR: '15',
+  EVENING_WATCH_TIGHTEN_KW: '3',
+  SUSTAIN_POLLS: '2',
+});
+const at = (iso) => Date.parse(iso);
+
+test('เกณฑ์เข้มขึ้นเฉพาะ 15:00-22:00 วันจันทร์-ศุกร์', () => {
+  const cases = [
+    ['2026-08-03T06:00:00Z', false, 'จันทร์ 13:00 ยังไม่ถึงเวลา'],
+    ['2026-08-03T07:59:00Z', false, 'จันทร์ 14:59 ยังไม่ถึงเวลา'],
+    ['2026-08-03T08:00:00Z', true, 'จันทร์ 15:00 เริ่มเข้ม'],
+    ['2026-08-03T11:00:00Z', true, 'จันทร์ 18:00 ยังเข้มอยู่'],
+    ['2026-08-03T14:59:00Z', true, 'จันทร์ 21:59 ยังเข้มอยู่'],
+    ['2026-08-03T15:00:00Z', false, 'จันทร์ 22:00 จบ on-peak แล้ว'],
+    ['2026-08-02T09:00:00Z', false, 'อาทิตย์ 16:00 ไม่มีค่า demand ไม่ต้องเข้ม'],
+    ['2026-08-08T09:00:00Z', false, 'เสาร์ 16:00 ไม่มีค่า demand ไม่ต้องเข้ม'],
+  ];
+  for (const [iso, want, why] of cases) {
+    assert.equal(activeThresholds(evcfg, at(iso)).evening, want, why);
+  }
+});
+
+test('ตอนเข้ม เกณฑ์ต้องลดลงตามที่ตั้งไว้', () => {
+  const th = activeThresholds(evcfg, at('2026-08-03T09:00:00Z')); // จันทร์ 16:00
+  assert.equal(th.warnKw, 13, 'เหลือง 16 - 3');
+  assert.equal(th.critKw, 16, 'แดง 19 - 3');
+});
+
+test('ไฟหลวงเท่าเดิม แต่ตอนเย็นต้องขึ้นเหลือง ตอนบ่ายยังเขียว', () => {
+  const series = [{ pv: 5, grid: 14 }, { pv: 5, grid: 14 }, { pv: 5, grid: 14 }];
+  const noon = feed(emptyState(), series, at('2026-08-03T06:00:00Z')); // 13:00
+  const eve = feed(emptyState(), series, at('2026-08-03T09:00:00Z')); // 16:00
+  assert.equal(noon.state.level, 'green', '14 kW ตอนบ่ายยังต่ำกว่าเกณฑ์ปกติ 16');
+  assert.equal(eve.state.level, 'yellow', '14 kW ตอนเย็นต้องเกินเกณฑ์เข้ม 13');
+});
+
+test('ปิดสวิตช์ EVENING_WATCH แล้วต้องกลับไปใช้เกณฑ์ปกติ', () => {
+  const off = loadConfig({ WARN_IMPORT_KW: '16', CRIT_IMPORT_KW: '19', EVENING_WATCH: 'false' });
+  const th = activeThresholds(off, at('2026-08-03T09:00:00Z'));
+  assert.equal(th.evening, false);
+  assert.equal(th.warnKw, 16);
 });
 
 console.log(`\n${pass} เทสต์ผ่าน${process.exitCode ? ' (มีบางข้อไม่ผ่าน)' : ' ทั้งหมด ✨'}\n`);

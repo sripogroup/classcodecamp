@@ -9,7 +9,7 @@
 
 import { loadConfig } from './config.js';
 import { FusionSolar } from './fusionsolar.js';
-import { emptyState, evaluate, evaluateDemand, pickActions } from './analyze.js';
+import { activeThresholds, emptyState, evaluate, evaluateDemand, pickActions } from './analyze.js';
 import { billView, feedBill } from './bill.js';
 import { emptyDemand, feedDemand, monthHeadroom, monthKey, windowView } from './demand.js';
 import { decideShed, desiredMap, emptyShedState } from './autoshed.js';
@@ -639,6 +639,8 @@ async function publicState(env, cfg) {
   // คิดหน้าต่างใหม่ ณ เวลาที่เรียก เพื่อให้ตัวเลข "เหลืออีกกี่นาที" ตรงกับความจริง
   const win = last && !stale ? windowView(demand, Date.now(), last.grid, cfg) : state.window || null;
   const headroom = monthHeadroom(demand, cfg, win && !stale ? win.projectedKw : 0);
+  // เกณฑ์ที่ใช้จริง ณ ตอนที่เรียก ไม่ใช่ตอนที่เก็บ state ไว้ — หน้าจอต้องโชว์ของปัจจุบัน
+  const th = activeThresholds(cfg, Date.now());
 
   return {
     level: stale ? 'unknown' : state.level,
@@ -698,13 +700,17 @@ async function publicState(env, cfg) {
       mode: cfg.autoshedMode,
       offZones: (cfg.zones || []).filter((z) => state.shed?.zones?.[z.id]?.off).map((z) => ({ id: z.id, name: z.name, kw: z.kw })),
     },
-    targets: { warnKw: cfg.warnKw, critKw: cfg.critKw, actionKw: cfg.demandActionKw, targetKw: cfg.demandTargetKw },
+    targets: { warnKw: th.warnKw, critKw: th.critKw, actionKw: cfg.demandActionKw, targetKw: cfg.demandTargetKw },
+    // ตอนนี้อยู่ในช่วงเฝ้าระวังเข้มหรือยัง (15:00 จนจบ on-peak) — หน้าจอเอาไปขึ้นแถบเตือน
+    eveningWatch: th.evening
+      ? { active: true, fromHour: cfg.eveningWatchHour, baseWarnKw: cfg.warnKw, baseCritKw: cfg.critKw }
+      : { active: false, fromHour: cfg.eveningWatchHour },
     cause: state.cause || null,
     actions: state.level === 'green' ? [] : state.actions || [],
     ackBy: state.ackBy || null,
     mutedUntil: state.mutedUntil || 0,
-    warnKw: cfg.warnKw,
-    critKw: cfg.critKw,
+    warnKw: th.warnKw,
+    critKw: th.critKw,
     updatedAt: last ? last.t : null,
     lastError: state.lastError?.message || null,
   };
