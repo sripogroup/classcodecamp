@@ -163,12 +163,12 @@ export function dashboardHtml(cfg, token) {
     <div class="label">💰 ค่าไฟ <span style="color:#64748b">— ประมาณการจากที่ระบบวัดได้เอง ไม่ใช่บิลจริง</span></div>
     <div class="billtop">
       <div>
-        <div class="label">วันนี้ <small style="color:#64748b">(เฉพาะค่าพลังงาน)</small></div>
+        <div class="label" id="billDayLabel">วันนี้ <small style="color:#64748b">(เฉพาะค่าพลังงาน)</small></div>
         <div class="bigbaht"><span id="billDay">–</span><span class="cur">บาท</span></div>
         <div class="label" id="billDaySub" style="margin-top:6px"></div>
       </div>
       <div>
-        <div class="label">เดือนนี้ <small style="color:#64748b">(รวมทุกรายการ)</small></div>
+        <div class="label" id="billMonthLabel">เดือนนี้ <small style="color:#64748b">(รวมทุกรายการ)</small></div>
         <div class="bigbaht month"><span id="billMonth">–</span><span class="cur">บาท</span></div>
         <div class="label" id="billMonthSub" style="margin-top:6px"></div>
       </div>
@@ -372,6 +372,21 @@ function render(st, samples){
     set('billMonth', baht(bl.month.totalBaht));
     set('billDaySub', 'ซื้อไฟ ' + fmt(bl.day.totalKwh) + ' kWh');
     set('billMonthSub', 'ซื้อไฟ ' + fmt(bl.month.totalKwh) + ' kWh');
+
+    /* ป้ายต้องบอกช่วงที่วัดได้จริง ไม่ใช่เขียน "วันนี้" ทั้งที่เพิ่งเริ่มนับตอนบ่าย
+       ตัวเลขถูก แต่ถ้าป้ายบอกกว้างกว่าของจริง คนอ่านจะสรุปผิดว่าระบบคิดเลขพลาด */
+    const since = bl.month.since || 0;
+    const sinceD = new Date(since + 7*3600000);
+    const nowD = new Date(Date.now() + 7*3600000);
+    const startedToday = since && sinceD.toISOString().slice(0,10) === nowD.toISOString().slice(0,10);
+    const startedThisMonth1st = since && sinceD.getUTCDate() === 1 && sinceD.getUTCHours() === 0;
+
+    document.getElementById('billDayLabel').innerHTML = startedToday
+      ? 'ตั้งแต่ ' + thWhen(since).split(' ').slice(2).join(' ') + ' น. ถึงตอนนี้ <small style="color:#64748b">(เฉพาะค่าพลังงาน)</small>'
+      : 'วันนี้ <small style="color:#64748b">(เฉพาะค่าพลังงาน)</small>';
+    document.getElementById('billMonthLabel').innerHTML = (since && !startedThisMonth1st)
+      ? 'ตั้งแต่ ' + thWhen(since) + ' น. <small style="color:#64748b">(รวมทุกรายการ)</small>'
+      : 'เดือนนี้ <small style="color:#64748b">(รวมทุกรายการ)</small>';
     set('brkOnKwh', '(' + fmt(bl.month.onPeakKwh) + ' kWh)');
     set('brkOffKwh', '(' + fmt(bl.month.offPeakKwh) + ' kWh)');
     set('brkOn', baht(bl.month.energyOnBaht));
@@ -384,10 +399,16 @@ function render(st, samples){
     set('brkTotal', baht(bl.month.totalBaht) + ' บาท');
     /* ข้อมูลขาดช่วง = ตัวเลขต่ำกว่าจริงเสมอ ต้องบอกให้รู้ ไม่ใช่โชว์เฉย ๆ */
     const miss = bl.month.missedMin;
+    /* ค่าบริการ 312 บาทเป็นยอดเต็มเดือนเสมอ ถ้าเพิ่งเริ่มนับได้ไม่กี่ชั่วโมง
+       ยอด "เดือนนี้" จะดูใหญ่เกินจริงมาก ต้องเตือนให้ชัด ไม่ใช่ปล่อยให้เข้าใจผิด */
+    const partial = !startedThisMonth1st;
     document.getElementById('billNote').innerHTML =
-      'เริ่มนับตั้งแต่ ' + thWhen(bl.month.since) + ' น.'
-      + (miss > 5 ? ' • <b style="color:#f59e0b">ข้อมูลขาดไป ' + Math.round(miss) + ' นาที ตัวเลขจริงสูงกว่านี้</b>' : '')
-      + ' • กดพีคช่วง Peak ลงได้ 1 kW = ประหยัด ' + baht(bl.month.perKwBaht) + ' บาท/เดือน';
+      (partial
+        ? '<b style="color:#f59e0b">⚠️ ยังไม่ครบเดือน</b> — เริ่มเก็บข้อมูลเมื่อ ' + thWhen(since) + ' น. '
+          + 'ค่าพลังงานจึงนับเฉพาะจากตอนนั้น ส่วนค่าบริการ ' + baht(bl.month.serviceBaht) + ' บาท เป็นยอดเต็มเดือนเสมอ<br>'
+        : 'เริ่มนับตั้งแต่ต้นเดือน<br>')
+      + (miss > 5 ? '<b style="color:#f59e0b">ข้อมูลขาดไป ' + Math.round(miss) + ' นาที ตัวเลขจริงสูงกว่านี้</b> • ' : '')
+      + 'กดพีคช่วง Peak ลงได้ 1 kW = ประหยัด ' + baht(bl.month.perKwBaht) + ' บาท/เดือน';
   } else {
     bc.style.display = 'none';
   }

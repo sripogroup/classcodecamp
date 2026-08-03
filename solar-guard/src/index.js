@@ -10,7 +10,7 @@
 import { loadConfig } from './config.js';
 import { FusionSolar } from './fusionsolar.js';
 import { activeThresholds, emptyState, evaluate, evaluateDemand, pickActions } from './analyze.js';
-import { billView, feedBill } from './bill.js';
+import { billView, emptyBill, feedBill } from './bill.js';
 import { emptyDemand, feedDemand, monthHeadroom, monthKey, windowView } from './demand.js';
 import { decideShed, desiredMap, emptyShedState } from './autoshed.js';
 import { checkSchedule, emptyScheduleState } from './schedule.js';
@@ -82,6 +82,43 @@ export default {
             meterFound: true,
           }),
         );
+      }
+
+      // เติมข้อมูลย้อนหลังเข้าเครื่องคิดค่าไฟ
+      //
+      // แยกออกมาจาก /api/ingest โดยตั้งใจ เพราะ ingest จะปลุกระบบแจ้งเตือนทั้งชุด
+      // การยิงข้อมูลของเมื่อวานเข้าไปจะทำให้พนักงานได้ข้อความ "ต้องลดโหลด" ของ
+      // เหตุการณ์ที่ผ่านไปแล้ว ตรงนี้จึงแตะเฉพาะเครื่องคิดค่าไฟ ไม่แตะสถานะและไม่ส่งอะไรเลย
+      //
+      // สร้างใหม่จากศูนย์ทุกครั้ง (ไม่ใช่บวกทับของเดิม) เพื่อให้ยิงซ้ำได้โดยยอดไม่บวม
+      if (path === '/api/backfill' && request.method === 'POST') {
+        if (!cfg.ingestToken) return json({ ok: false, error: 'ยังไม่ได้ตั้ง INGEST_TOKEN' }, 400);
+        const given = request.headers.get('x-ingest-token') || url.searchParams.get('token') || '';
+        if (given !== cfg.ingestToken) return json({ ok: false, error: 'รหัสไม่ถูกต้อง' }, 401);
+
+        const body = await request.json().catch(() => null);
+        const rows = Array.isArray(body?.samples) ? body.samples : null;
+        if (!rows || !rows.length) return json({ ok: false, error: 'ต้องส่ง samples เป็นอาร์เรย์' }, 400);
+
+        const clean = rows
+          .map((s) => ({ t: Number(s.t), grid: Number(s.grid) }))
+          .filter((s) => Number.isFinite(s.t) && Number.isFinite(s.grid))
+          .sort((a, b) => a.t - b.t);
+        if (!clean.length) return json({ ok: false, error: 'ไม่มีแถวไหนใช้ได้ ต้องมี t และ grid เป็นตัวเลข' }, 400);
+
+        const state = (await readState(env)) || emptyState();
+        let bill = emptyBill(clean[0].t);
+        for (const s of clean) bill = feedBill(bill, s.t, cfg.meterSign * s.grid, cfg);
+        state.bill = bill;
+        await writeState(env, state);
+
+        return json({
+          ok: true,
+          got: clean.length,
+          from: clean[0].t,
+          to: clean[clean.length - 1].t,
+          month: billView(bill, cfg, 'month'),
+        });
       }
 
       // LINE ยิง event มาที่นี่

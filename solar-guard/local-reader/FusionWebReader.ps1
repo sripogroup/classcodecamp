@@ -116,6 +116,16 @@ param(
     # tariff penalty, instead of guessing from memory.
     [string]$From,
     [string]$To,
+
+    # With -From/-To: also send the day curves to the worker so the bill
+    # calculator can rebuild the month from real history instead of starting
+    # from whenever the feature was deployed.
+    #
+    # Goes to /api/backfill, NOT /api/ingest. Backfill only touches the bill
+    # accumulator; it never runs the alerting pipeline. Replaying yesterday
+    # through /api/ingest would text the staff about events already over.
+    [switch]$PushBackfill,
+
     [string]$LogFile,
 
     # Read and record, but do not send anywhere. Lets data collection start
@@ -538,6 +548,18 @@ function Push-Sample {
         -Headers @{ "X-Ingest-Token" = $Token }
 }
 
+# Send a whole history curve to the bill calculator in one shot.
+# Rows are @{ t = <epoch ms>; grid = <kW> }. The worker rebuilds the month
+# from scratch each call, so running this twice does not double the total.
+function Push-Backfill {
+    param([string]$Worker, [string]$Token, [array]$Rows)
+
+    $body = @{ samples = $Rows } | ConvertTo-Json -Compress -Depth 4
+    return Invoke-RestMethod -Uri ($Worker.TrimEnd("/") + "/api/backfill") -Method POST `
+        -Body $body -ContentType "application/json" -TimeoutSec 120 `
+        -Headers @{ "X-Ingest-Token" = $Token }
+}
+
 # ------------------------------------------------------------------- main ---
 
 $token = $IngestToken
@@ -634,6 +656,7 @@ if ($From) {
 
     $over20 = @()
     $over30 = @()
+    $backfillRows = New-Object System.Collections.ArrayList
     $d = $start
     while ($d -le $end) {
         $ds = $d.ToString("yyyy-MM-dd")
@@ -682,6 +705,22 @@ if ($From) {
         $maxP = if ($pv) { MaxOf $pv } else { 0 }
         $kwh = $sumG * ($minPer / 60.0)
 
+        # Timestamps: the portal returns one flat array covering the whole Thai
+        # day, so sample i sits at localMidnight + i * minPer. Thailand is a
+        # fixed UTC+7 with no DST, so a plain offset is exact here.
+        if ($PushBackfill) {
+            $midnightUtcMs = [int64]([System.DateTimeOffset]::new($d.Date, [timespan]::FromHours(7)).ToUnixTimeMilliseconds())
+            for ($i = 0; $i -lt $n; $i++) {
+                $o = 0.0
+                if ([double]::TryParse([string]$grid[$i], [ref]$o)) {
+                    [void]$backfillRows.Add(@{
+                        t    = $midnightUtcMs + [int64]($i * $minPer * 60000)
+                        grid = [math]::Round($o, 3)
+                    })
+                }
+            }
+        }
+
         $flag = ""
         if ($maxG -ge 30) { $flag = "  <<< OVER 30"; $over30 += $ds }
         elseif ($maxG -ge 20) { $flag = "  <<  over 20"; $over20 += $ds }
@@ -698,6 +737,28 @@ if ($From) {
     Write-Host ""
     Write-Host "Note: this history is 5-minute averages from the portal. A shorter"
     Write-Host "spike between samples would not show up here at all."
+
+    if ($PushBackfill) {
+        if (-not $WorkerUrl) {
+            $store = Get-StoredSecrets
+            if ($store -and $store.WorkerUrl) { $WorkerUrl = $store.WorkerUrl }
+        }
+        if (-not $WorkerUrl -or -not $token) {
+            Write-Log "-PushBackfill needs a worker URL and ingest token (run Setup-Credentials.ps1)" "ERROR"
+        } elseif ($backfillRows.Count -eq 0) {
+            Write-Log "No rows to send - nothing was read from the portal" "WARN"
+        } else {
+            Write-Host ""
+            Write-Log ("Sending {0} rows to /api/backfill" -f $backfillRows.Count)
+            try {
+                $res = Push-Backfill -Worker $WorkerUrl -Token $token -Rows $backfillRows.ToArray()
+                Write-Log ("Bill rebuilt: {0} kWh, demand {1} kW, total {2} baht" -f `
+                    $res.month.totalKwh, $res.month.demandKw, $res.month.totalBaht)
+            } catch {
+                Write-Log ("Backfill failed: {0}" -f $_.Exception.Message) "ERROR"
+            }
+        }
+    }
     return
 }
 
