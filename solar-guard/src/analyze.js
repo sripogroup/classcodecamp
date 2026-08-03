@@ -114,9 +114,27 @@ export function demand15(samples, sample) {
   return win.reduce((a, s) => a + (s.grid ?? 0), 0) / win.length;
 }
 
-/** เลือกว่าให้ไปปิดอะไรบ้าง ให้พอดีกับส่วนที่เกิน */
+/**
+ * เลือกว่าให้ไปปิดอะไรบ้าง ให้พอดีกับส่วนที่เกิน
+ *
+ * ถ้ารายการมี order มาด้วย (มาจากการวัดโหลดจริงรายโซน ดู server/zones.js)
+ * จะเรียงตามนั้น = เรียงตาม "ผลกระทบต่อคนน้อยสุดก่อน" ไม่ใช่ kW มากสุดก่อน
+ *
+ * เหตุผล: การบอกให้ปิดแอร์ห้องที่มีคนนั่งทำงานอยู่เพื่อลด 3 kW ทั้งที่ยังมี
+ * ที่ชาร์จรถเปิดค้างอยู่ ไม่ใช่คำแนะนำที่ใครจะทำตาม พอไม่มีใครทำตามครั้งหนึ่ง
+ * ครั้งต่อ ๆ ไปก็ไม่มีใครอ่าน แล้วระบบเตือนทั้งระบบก็ไร้ความหมาย
+ *
+ * รายการที่ยังไม่มี order (ค่าตั้งต้นในโค้ด) ใช้ kW มากสุดก่อนเหมือนเดิม
+ * เพราะไม่มีข้อมูลว่าอันไหนปิดแล้วกระทบใครมากกว่ากัน
+ */
 export function pickActions(cfg, excessKw) {
-  const items = [...cfg.loadShed].sort((a, b) => Number(b.kw) - Number(a.kw));
+  const hasOrder = cfg.loadShed.some((x) => Number.isFinite(Number(x.order)));
+  const items = [...cfg.loadShed]
+    .filter((x) => !x.protectedZone) // ไฟส่องสว่างห้ามสั่งปิด ไม่ว่าไฟจะเกินแค่ไหน
+    .sort((a, b) => (hasOrder
+      ? (Number(a.order) || 99) - (Number(b.order) || 99)
+      : Number(b.kw) - Number(a.kw)));
+
   const picked = [];
   let remaining = Math.max(0, excessKw);
 
