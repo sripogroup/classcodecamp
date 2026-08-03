@@ -286,9 +286,26 @@ export function evaluate(prevState, sample, cfg, now = Date.now()) {
   }
 
   // ---------- 5) เก็บประวัติ ----------
-  state.samples.push(sample);
+  // เก็บประวัติแบบเว้นระยะ ไม่ใช่เก็บทุกจุดที่เข้ามา
+  //
+  // ตัวอ่านในโรงงานยิงเข้ามาทุก 30 วินาที ถ้าเก็บทุกจุดโดยจำกัดไว้ 320 จุด
+  // จะได้ประวัติแค่ 2.7 ชั่วโมง กราฟบนหน้าจอเลยไม่มีทางแสดงครบวันได้เลย
+  // เว้นระยะเป็นช่วงละ sampleGapSec แล้วเก็บได้ยาวขึ้นมาก โดยไฟล์ไม่บวม
+  // แบ่งช่องตามนาฬิกา ไม่ใช่นับถอยจากจุดล่าสุด — ถ้านับถอยจากจุดล่าสุด
+  // ทุกจุดใหม่จะเลื่อนเส้นตายออกไปเรื่อย ๆ จนไม่มีจุดไหนถูกเก็บเพิ่มเลย
+  const bucketMs = Math.max(1, cfg.sampleGapSec) * 1000;
+  const bucket = Math.floor(now / bucketMs);
+  const last = state.samples[state.samples.length - 1];
+
+  if (last && Math.floor(last.t / bucketMs) === bucket) {
+    // ในช่องเดียวกัน เก็บจุดที่ไฟหลวงสูงสุดไว้ ไม่ใช่จุดล่าสุด
+    // ระบบนี้มีไว้จับพีค ถ้าเก็บจุดล่าสุดแล้วพีคไปเกิดกลางช่อง กราฟจะไม่เห็นเลย
+    if ((sample.grid ?? 0) >= (last.grid ?? 0)) state.samples[state.samples.length - 1] = sample;
+  } else {
+    state.samples.push(sample);
+  }
   const dayAgo = now - 26 * 60 * 60 * 1000;
-  state.samples = state.samples.filter((s) => s.t >= dayAgo).slice(-320);
+  state.samples = state.samples.filter((s) => s.t >= dayAgo).slice(-cfg.sampleMax);
 
   if (grid > (state.peakToday?.kw || 0)) state.peakToday = { kw: grid, at: now };
   state.lastOkAt = now;

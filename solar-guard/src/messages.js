@@ -361,13 +361,33 @@ export function buildDailySummary(state, cfg, now = Date.now(), headroom = null)
   const day = s.filter((x) => x.t >= now - 20 * 60 * 60 * 1000);
   if (!day.length) return null;
 
-  const hours = 5 / 60; // 1 ตัวอย่าง = 5 นาที
-  const gridKwh = day.reduce((a, x) => a + Math.max(0, x.grid || 0) * hours, 0);
-  const pvKwh = day.reduce((a, x) => a + Math.max(0, x.pv || 0) * hours, 0);
-  const loadKwh = day.reduce((a, x) => a + Math.max(0, x.load || 0) * hours, 0);
+  // อินทิเกรตตามเวลาจริงระหว่างจุด ไม่ใช่คูณ 5 นาทีต่อจุดแบบตายตัว
+  //
+  // เดิมสมมติว่า 1 ตัวอย่าง = 5 นาที ซึ่งจริงเฉพาะตอนที่ดึงเองผ่าน cron
+  // พอตัวอ่านในโรงงานยิงเข้ามาทุก 30 วินาที สมมติฐานนี้ทำให้ตัวเลข kWh
+  // และค่าไฟในสรุปประจำวันสูงเกินจริงหลายเท่า
+  const MAX_GAP_H = 15 / 60; // ห่างเกิน 15 นาทีถือว่าข้อมูลขาด ไม่เดาช่วงนั้น
+  const integrate = (key) => {
+    let sum = 0;
+    for (let i = 1; i < day.length; i++) {
+      const dt = (day[i].t - day[i - 1].t) / 3600000;
+      if (dt <= 0 || dt > MAX_GAP_H) continue;
+      sum += ((Math.max(0, day[i - 1][key] || 0) + Math.max(0, day[i][key] || 0)) / 2) * dt;
+    }
+    return sum;
+  };
+
+  // ถ้ามีตัวคิดค่าไฟอยู่แล้ว ใช้ยอดของมันเลย แม่นกว่าเพราะเก็บต่อเนื่องไม่ตกหล่น
+  const billDay = state.bill && state.bill.day ? state.bill.day : null;
+  const gridKwh = billDay ? (billDay.onPeakKwh || 0) + (billDay.offPeakKwh || 0) : integrate('grid');
+  const pvKwh = integrate('pv');
+  const loadKwh = integrate('load');
   const coverage = loadKwh > 0 ? Math.round(((loadKwh - gridKwh) / loadKwh) * 100) : 0;
-  const cost = gridKwh * cfg.tariffOnPeak;
-  const saved = (loadKwh - gridKwh) * cfg.tariffOnPeak;
+  // ใช้ราคาจริงแยก Peak/Off Peak ถ้ามีข้อมูลจากตัวคิดค่าไฟ
+  const cost = billDay
+    ? (billDay.onPeakKwh || 0) * cfg.tariffOnPeak + (billDay.offPeakKwh || 0) * cfg.tariffOffPeak
+    : gridKwh * cfg.tariffOnPeak;
+  const saved = Math.max(0, loadKwh - gridKwh) * cfg.tariffOnPeak;
   const peak = state.peakToday || { kw: 0, at: 0 };
 
   const body = [

@@ -92,6 +92,11 @@ param(
 
     [int]$IntervalSec = 30,
     [ValidateSet(1, -1)][int]$MeterSign = 1,
+
+    # Anything above this is treated as a bad read and thrown away rather than
+    # sent on. This site runs a 36 kW inverter against a 20 kW ceiling, so a
+    # three-digit reading is always a parsing or portal fault, never real power.
+    [double]$MaxPlausibleKw = 100,
     [switch]$Probe,
     [switch]$Once,
 
@@ -889,8 +894,31 @@ while ($true) {
     if ($reading) {
         $grid = $MeterSign * $reading.Grid
 
+        # Drop readings that cannot physically happen at this site.
+        #
+        # On 2026-08-03 the portal produced a 1,279 kW value on a 36 kW system.
+        # It reached the cloud, and one bad point permanently poisoned the day
+        # peak, the month peak and the 15-minute window - none of which can be
+        # unset from the UI. Cheaper to refuse it here than to repair it later.
+        #
+        # The raw strings are logged so the next occurrence can be diagnosed
+        # instead of guessed at.
+        $worst = ([math]::Abs($grid)), ([math]::Abs($reading.Pv)), ([math]::Abs($reading.Load)) |
+                 Measure-Object -Maximum | Select-Object -ExpandProperty Maximum
+        if ($worst -gt $MaxPlausibleKw) {
+            $rawText = ""
+            if ($reading.PSObject.Properties.Name -contains "Raw") { $rawText = " | raw: $($reading.Raw)" }
+            Write-Log ("Impossible reading, skipped: PV {0:F3} / Grid {1:F3} / Load {2:F3} kW (cap {3}){4}" -f `
+                $reading.Pv, $grid, $reading.Load, $MaxPlausibleKw, $rawText) "WARN"
+            Start-Sleep -Seconds $IntervalSec
+            continue
+        }
+
         if ($CsvFile) {
-            $row = "{0},{1:N3},{2:N3},{3:N3}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $reading.Pv, $grid, $reading.Load
+            # F3 not N3: "N" inserts thousands separators, so a value like
+            # 1279.445 is written as "1,279.445" and splits into two CSV columns,
+            # silently shifting every field after it.
+            $row = "{0},{1:F3},{2:F3},{3:F3}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $reading.Pv, $grid, $reading.Load
             try { Add-Content -Path $CsvFile -Value $row -Encoding utf8 } catch { }
         }
 

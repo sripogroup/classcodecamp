@@ -106,18 +106,62 @@ export default {
           .sort((a, b) => a.t - b.t);
         if (!clean.length) return json({ ok: false, error: 'ไม่มีแถวไหนใช้ได้ ต้องมี t และ grid เป็นตัวเลข' }, 400);
 
+        // ทิ้งค่าที่เป็นไปไม่ได้ก่อน ไม่งั้นการสร้างใหม่จะลอกความเสียหายกลับเข้ามาอีกรอบ
+        const usable = clean.filter((s) => Math.abs(s.grid) <= cfg.maxPlausibleKw);
+        if (!usable.length) return json({ ok: false, error: 'ทุกแถวเกินเพดานความสมเหตุสมผล' }, 400);
+
         const state = (await readState(env)) || emptyState();
-        let bill = emptyBill(clean[0].t);
-        for (const s of clean) bill = feedBill(bill, s.t, cfg.meterSign * s.grid, cfg);
+
+        let bill = emptyBill(usable[0].t);
+        for (const s of usable) bill = feedBill(bill, s.t, cfg.meterSign * s.grid, cfg);
         state.bill = bill;
+
+        // สร้างพีคใหม่จากประวัติจริงด้วย ไม่ใช่แค่ค่าไฟ
+        //
+        // พีควัน/พีคเดือน/หน้าต่าง 15 นาที เก็บค่าสูงสุดแบบถาวร ถ้าเคยมีค่าขยะหลุดเข้าไป
+        // มันจะค้างอยู่จนสิ้นเดือน ลบเองไม่ได้เลย ตรงนี้จึงเป็นทางเดียวที่จะล้างได้
+        // ไม่แตะสถานะการเตือน (level/ack/ประวัติการส่ง) เพราะไม่ใช่เรื่องของข้อมูลย้อนหลัง
+        if (body.rebuildPeaks) {
+          const mk = monthKey(usable[usable.length - 1].t);
+          const todayKey = thDateKey(usable[usable.length - 1].t);
+          let demand = emptyDemand();
+          const mp = { key: mk, gridKw: 0, gridAt: 0, loadKw: 0, loadAt: 0, pvKw: 0, pvAt: 0 };
+          let peakToday = { kw: 0, at: 0 };
+
+          for (const s of usable) {
+            const g = cfg.meterSign * s.grid;
+            if (monthKey(s.t) !== mk) continue;
+            demand = feedDemand(demand, s.t, g, cfg).demand;
+            if (g > mp.gridKw) { mp.gridKw = g; mp.gridAt = s.t; }
+            if (thDateKey(s.t) === todayKey && g > peakToday.kw) peakToday = { kw: round1(g), at: s.t };
+          }
+
+          state.demand = demand;
+          // โหลดกับโซลาร์ไม่ได้ส่งมากับ backfill จึงเก็บของเดิมไว้ ยกเว้นที่เกินเพดาน
+          const old = state.monthPeaks && state.monthPeaks.key === mk ? state.monthPeaks : null;
+          state.monthPeaks = {
+            ...mp,
+            loadKw: old && old.loadKw <= cfg.maxPlausibleKw ? old.loadKw : 0,
+            loadAt: old && old.loadKw <= cfg.maxPlausibleKw ? old.loadAt : 0,
+            pvKw: old && old.pvKw <= cfg.maxPlausibleKw ? old.pvKw : 0,
+            pvAt: old && old.pvKw <= cfg.maxPlausibleKw ? old.pvAt : 0,
+          };
+          state.peakToday = peakToday;
+        }
+
         await writeState(env, state);
 
         return json({
           ok: true,
           got: clean.length,
-          from: clean[0].t,
-          to: clean[clean.length - 1].t,
+          used: usable.length,
+          dropped: clean.length - usable.length,
+          rebuiltPeaks: !!body.rebuildPeaks,
+          from: usable[0].t,
+          to: usable[usable.length - 1].t,
           month: billView(bill, cfg, 'month'),
+          monthPeakKw: state.demand ? round1(state.demand.monthPeakKw || 0) : null,
+          peakToday: state.peakToday || null,
         });
       }
 
@@ -363,6 +407,25 @@ async function poll(env, cfg, injected = null) {
     load: round1(reading.loadKw),
     bat: round1(reading.batteryKw),
   };
+
+  // ---- ด่านกันค่าที่เป็นไปไม่ได้ ----
+  //
+  // ต้องอยู่ก่อนทุกอย่างที่จำค่าไว้ (พีควัน พีคเดือน หน้าต่าง 15 นาที ค่าไฟ)
+  // เพราะพวกนั้นเก็บค่าสูงสุดแบบถาวร ค่าขยะจุดเดียวจึงค้างอยู่ทั้งเดือน
+  // ทิ้งทั้งจุดไปเลย ไม่ตัดยอดให้ดูดี — ค่าที่ผิดต้องไม่ถูกนับ ไม่ใช่ถูกย่อ
+  const maxKw = cfg.maxPlausibleKw;
+  const bad = [
+    ['ไฟจากการไฟฟ้า', sample.grid],
+    ['โซลาร์', sample.pv],
+    ['โหลดรวม', sample.load],
+  ].find(([, v]) => !Number.isFinite(v) || Math.abs(v) > maxKw);
+
+  if (bad) {
+    const why = `ค่าที่อ่านได้ผิดปกติจนเป็นไปไม่ได้: ${bad[0]} = ${bad[1]} kW (เพดานที่ยอมรับ ${maxKw} kW) — ข้ามจุดนี้ไป`;
+    const state = { ...prev, lastError: { at: now, message: why } };
+    await writeState(env, state);
+    return { ok: false, error: why, rejected: sample };
+  }
 
   // ---- 0) สถิติสูงสุดของเดือน แยกทีละสาย ----
   //
