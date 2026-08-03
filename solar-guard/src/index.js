@@ -758,7 +758,17 @@ async function writeState(env, state) {
 
 /** สถานะที่หน้าจอ / ไฟหมุน (ESP32) เอาไปใช้ได้ */
 async function publicState(env, cfg) {
-  const state = await readState(env);
+  return viewState(await readState(env), cfg);
+}
+
+/**
+ * แปลง state ดิบเป็นตัวเลขที่หน้าจอและอุปกรณ์ภายนอกใช้
+ *
+ * แยกออกมาจาก publicState เพื่อให้เซิร์ฟเวอร์บนเครื่องในโรงงาน (server/) เรียกใช้
+ * ตัวเดียวกันได้ — ตัวเลขบนหน้าจอในโรงงานกับบนคลาวด์จะได้ตรงกันเสมอ
+ * ไม่ใช่คิดคนละสูตรแล้วมาเถียงกันทีหลังว่าฝั่งไหนถูก
+ */
+export function viewState(state, cfg) {
   const last = state.samples?.[state.samples.length - 1] || null;
   const stale = !last || minutesBetween(Date.now(), last.t) > STALE_MINUTES;
   const coveragePct = last && last.load > 0 ? Math.round(((last.load - Math.max(0, last.grid)) / last.load) * 100) : null;
