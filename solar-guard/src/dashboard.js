@@ -146,6 +146,29 @@ export function dashboardHtml(cfg, token) {
     </div>
   </div>
 
+  <div class="card" id="shedCard" style="display:none;margin-top:16px;border-color:#7c3aed">
+    <div class="label">🤖 ระบบสั่งปิดอัตโนมัติอยู่ตอนนี้</div>
+    <div id="shedList" style="font-size:18px;line-height:1.9;margin-top:8px"></div>
+    <div class="label" style="margin-top:10px">พิมพ์ /restore ในกลุ่ม Telegram ถ้าต้องการเปิดกลับทันที</div>
+  </div>
+
+  <div class="actions" id="actionsCard" style="display:none">
+    <h2>✅ ให้ทำตามลำดับนี้</h2>
+    <ol id="actionList"></ol>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <div class="label">วันนี้ (ตั้งแต่เช้า)</div>
+    <canvas id="chart"></canvas>
+    <div class="legend">
+      <span><i class="dot" style="background:#f59e0b"></i>ไฟจากการไฟฟ้า</span>
+      <span><i class="dot" style="background:#22c55e"></i>โซลาร์</span>
+      <span><i class="dot" style="background:#60a5fa"></i>โหลดรวม</span>
+    </div>
+  </div>
+
+  <!-- สรุปของเดือนอยู่ล่างสุด เพราะเป็นข้อมูลย้อนหลังไว้หาสาเหตุ ไม่ใช่ของที่ต้องรีบดู
+       ลำดับบนหน้าจอจึงเป็น: สถานะตอนนี้ > สิ่งที่ต้องทำ > กราฟวันนี้ > สรุปเดือน -->
   <div class="card" id="monthCard" style="display:none">
     <div class="label">📅 สูงสุดของเดือน <span id="mkey"></span></div>
     <table class="peaks">
@@ -170,27 +193,6 @@ export function dashboardHtml(cfg, token) {
       </tbody>
     </table>
     <div class="label" style="margin-top:12px">แถวแรกคือตัวที่ตัดสินว่าจะโดนย้ายประเภทค่าไฟไหม อีก 3 แถวไว้ดูย้อนหลังว่าวันนั้นเกิดอะไรขึ้น</div>
-  </div>
-
-  <div class="card" id="shedCard" style="display:none;margin-top:16px;border-color:#7c3aed">
-    <div class="label">🤖 ระบบสั่งปิดอัตโนมัติอยู่ตอนนี้</div>
-    <div id="shedList" style="font-size:18px;line-height:1.9;margin-top:8px"></div>
-    <div class="label" style="margin-top:10px">พิมพ์ /restore ในกลุ่ม Telegram ถ้าต้องการเปิดกลับทันที</div>
-  </div>
-
-  <div class="actions" id="actionsCard" style="display:none">
-    <h2>✅ ให้ทำตามลำดับนี้</h2>
-    <ol id="actionList"></ol>
-  </div>
-
-  <div class="card" style="margin-top:16px">
-    <div class="label">วันนี้ (ตั้งแต่เช้า)</div>
-    <canvas id="chart"></canvas>
-    <div class="legend">
-      <span><i class="dot" style="background:#f59e0b"></i>ไฟจากการไฟฟ้า</span>
-      <span><i class="dot" style="background:#22c55e"></i>โซลาร์</span>
-      <span><i class="dot" style="background:#60a5fa"></i>โหลดรวม</span>
-    </div>
   </div>
 
   <footer>
