@@ -27,7 +27,9 @@ export function loadConfig(env = {}) {
     // api   = ดึงจาก Northbound API (ต้องมีบัญชีจากดีลเลอร์)
     // kiosk = ดึงจาก Kiosk View (ยืนยันแล้วว่าไม่มีข้อมูลฝั่งใช้ไฟ ใช้ไม่ได้)
     // push  = ตัวอ่านในโรงงานส่งค่าเข้ามาเอง ทาง POST /api/ingest (ไม่ต้องพึ่งคลาวด์ Huawei เลย)
-    dataSource: ['api', 'kiosk', 'push'].includes(str(env.DATA_SOURCE, 'api')) ? str(env.DATA_SOURCE, 'api') : 'api',
+    // local = สมองอยู่บนเครื่องในโรงงาน คลาวด์เป็นแค่ยามคอยฟังสัญญาณ "ยังอยู่ดี"
+    dataSource: ['api', 'kiosk', 'push', 'local'].includes(str(env.DATA_SOURCE, 'api')) ? str(env.DATA_SOURCE, 'api') : 'api',
+    localDownMin: num(env.LOCAL_DOWN_MIN, 25), // เงียบเกินกี่นาทีถือว่าเครื่องในโรงงานตาย
     ingestToken: str(env.INGEST_TOKEN, ''), // รหัสลับของตัวอ่านในโรงงาน
     kioskKey: str(env.KIOSK_KEY, ''),
     kioskBase: str(env.KIOSK_BASE, ''),

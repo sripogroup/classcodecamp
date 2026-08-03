@@ -5,6 +5,10 @@ node_modules/
 !.dev.vars.example
 *.log
 
+# ฐานข้อมูลของเซิร์ฟเวอร์ในโรงงาน — โตขึ้นเรื่อย ๆ และเป็นข้อมูลของเครื่องนั้น
+# สร้างใหม่ได้เสมอจาก CSV ด้วย server/backfill.js
+data/
+
 # ตัวอ่านในโรงงาน — ไฟล์ที่มีสิทธิ์เข้าบัญชี ห้ามขึ้น git เด็ดขาด
 local-reader/fusion-cred.xml
 local-reader/cookies.txt

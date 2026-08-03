@@ -23,14 +23,15 @@ import { emptyBill, feedBill } from '../src/bill.js';
 import { emptyDemand, feedDemand, monthHeadroom, monthKey } from '../src/demand.js';
 import { checkSchedule, emptyScheduleState } from '../src/schedule.js';
 import { buildDailySummary, buildMessage } from '../src/messages.js';
-import { sendChat } from '../src/notify/chat.js';
-import { sendEmail } from '../src/notify/email.js';
+
+
 import { dashboardHtml } from '../src/dashboard.js';
 import { viewState } from '../src/index.js';
 import { round1, thDateKey, hhmm } from '../src/util.js';
 import { loadLocalConfig } from './config-local.js';
 import { Store } from './store.js';
 import { Inverter } from './modbus.js';
+import { makeRelay } from './notify-relay.js';
 
 const args = new Set(process.argv.slice(2));
 const NO_ALERTS = args.has('--no-alerts');
@@ -55,6 +56,8 @@ const log = (msg, level = 'INFO') => {
   if (level === 'ERROR') console.error(line);
   else console.log(line);
 };
+
+const relay = makeRelay(cfg, log);
 
 /* ------------------------------------------------------------------ วงจรหลัก */
 
@@ -128,8 +131,13 @@ async function processReading(reading, now = Date.now()) {
     const msg = buildMessage(ev, cfg, now);
     if (!msg) continue;
     if (NO_ALERTS) { log(`[ไม่ส่งจริง] ${ev.type}: ${msg.telegram.split('\n')[0]}`); continue; }
-    await sendChat(cfg, msg.telegram, { toBoss: !!msg.toBoss, silent: msg.priority === 'low' });
-    if (msg.priority === 'high' && msg.emailSubject) await sendEmail(cfg, msg.emailSubject, msg.emailHtml);
+    await relay(msg.telegram, {
+      toBoss: !!msg.toBoss,
+      silent: msg.priority === 'low',
+      // อีเมลเก็บไว้เฉพาะเรื่องใหญ่ ไม่งั้นคนจะชินแล้วเลิกอ่าน
+      emailSubject: msg.priority === 'high' ? msg.emailSubject : null,
+      emailHtml: msg.priority === 'high' ? msg.emailHtml : null,
+    });
   }
 
   return { state, sample, events: allEvents.map((e) => e.type) };
@@ -191,10 +199,7 @@ async function tick() {
   if (!NO_ALERTS && hh >= 17 && today !== lastSummaryDay) {
     lastSummaryDay = today;
     const msg = buildDailySummary(out.state, cfg, Date.now(), monthHeadroom(out.state.demand || emptyDemand(), cfg));
-    if (msg) {
-      await sendChat(cfg, msg.telegram, { silent: true });
-      await sendEmail(cfg, msg.emailSubject, msg.emailHtml);
-    }
+    if (msg) await relay(msg.telegram, { silent: true, emailSubject: msg.emailSubject, emailHtml: msg.emailHtml });
   }
 }
 

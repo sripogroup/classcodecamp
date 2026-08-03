@@ -25,7 +25,7 @@ SITE_NAME = "โรงงาน"
 # แหล่งข้อมูล: push = ตัวอ่านในโรงงาน (FusionWebReader.ps1) ส่งเข้ามาเอง
 # ต้องเป็น push เท่านั้น เพราะบัญชีนี้ไม่มีสิทธิ์ Northbound API
 # ถ้าเผลอปล่อยเป็น api ระบบจะยิงหา API ที่เรียกไม่ได้ทุก 5 นาที
-DATA_SOURCE = "push"
+DATA_SOURCE = "local"   # สมองย้ายไปอยู่บนเครื่องในโรงงานแล้ว คลาวด์เหลือหน้าที่เป็นยาม
 # โซนเซิร์ฟเวอร์ตามที่เห็นใน URL ของ FusionSolar (ของที่นี่คือ sg5)
 FUSION_BASE = "https://sg5.fusionsolar.huawei.com"
 FUSION_STATION_CODE = "NE=50174729"

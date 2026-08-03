@@ -179,6 +179,58 @@ export default {
         });
       }
 
+      // เซิร์ฟเวอร์ในโรงงานบอกว่า "ยังอยู่ดี"
+      //
+      // ตั้งแต่ย้ายสมองไปอยู่บนเครื่องในโรงงาน หน้าที่ที่เหลือของคลาวด์คือเป็นยาม:
+      // คอยฟังสัญญาณนี้ ถ้าขาดหายไปแปลว่าเครื่องนั้นดับ/ไฟดับ/Windows รีสตาร์ทเอง
+      // ซึ่งต้องมีใครที่ยัง "อยู่ข้างนอก" เป็นคนบอก ไม่งั้นระบบตายเงียบ
+      //
+      // 10 นาทีครั้ง = 144 ครั้ง/วัน จากโควตาเขียน KV 1,000 ครั้งของแพ็กฟรี
+      if (path === "/api/heartbeat" && request.method === "POST") {
+        if (!cfg.ingestToken) return json({ ok: false, error: 'ยังไม่ได้ตั้ง INGEST_TOKEN' }, 400);
+        const given = request.headers.get('x-ingest-token') || url.searchParams.get('token') || '';
+        if (given !== cfg.ingestToken) return json({ ok: false, error: 'รหัสไม่ถูกต้อง' }, 401);
+
+        const body = (await request.json().catch(() => null)) || {};
+        const state = (await readState(env)) || emptyState();
+        state.heartbeat = {
+          at: Date.now(),
+          level: body.level ?? null,
+          gridImportKw: num(body.gridImportKw),
+          pvKw: num(body.pvKw),
+          loadKw: num(body.loadKw),
+          monthPeakKw: num(body.monthPeakKw),
+          emergency: !!body.emergency,
+        };
+        // เคยเตือนว่าเงียบไปแล้ว พอกลับมาต้องล้างธง จะได้เตือนได้อีกถ้าหายไปอีกรอบ
+        if (state.localDownNotifiedAt) state.localDownNotifiedAt = 0;
+        await writeState(env, state);
+        return json({ ok: true, at: state.heartbeat.at });
+      }
+
+      // ส่งข้อความแทนเซิร์ฟเวอร์ในโรงงาน
+      //
+      // โทเคนของบอทเป็นความลับที่เก็บไว้บน Cloudflare อย่างเดียว (wrangler secret)
+      // อ่านกลับออกมาไม่ได้ตามที่ควรจะเป็น เครื่องในโรงงานจึงส่ง Telegram เองไม่ได้
+      // ทางเลือกคือก๊อปโทเคนไปวางไว้บนเครื่องอีกชุด ซึ่งแปลว่ามีความลับสองที่
+      // ต้องคอยหมุนพร้อมกัน — ไม่คุ้ม
+      //
+      // ตรงนี้จึงเป็นแค่ทางผ่าน: **ไม่แตะ KV เลย** จึงไม่กินโควตาเขียน 1,000/วัน
+      if (path === '/api/notify' && request.method === 'POST') {
+        if (!cfg.ingestToken) return json({ ok: false, error: 'ยังไม่ได้ตั้ง INGEST_TOKEN' }, 400);
+        const given = request.headers.get('x-ingest-token') || url.searchParams.get('token') || '';
+        if (given !== cfg.ingestToken) return json({ ok: false, error: 'รหัสไม่ถูกต้อง' }, 401);
+
+        const body = (await request.json().catch(() => null)) || {};
+        const text = String(body.text || '').slice(0, 4000);
+        if (!text) return json({ ok: false, error: 'ต้องส่ง text' }, 400);
+
+        const chat = await sendChat(cfg, text, { toBoss: !!body.toBoss, silent: !!body.silent });
+        let mail = { skipped: 'ไม่ได้ขอให้ส่งอีเมล' };
+        if (body.emailSubject) mail = await sendEmail(cfg, String(body.emailSubject), String(body.emailHtml || text));
+        return json({ ok: true, chat, email: mail });
+      }
+
       // LINE ยิง event มาที่นี่
       //
       // เหตุผลหลักตอนนี้: หา groupId ของกลุ่มที่เชิญบอทเข้าไป ซึ่งไม่มีทางรู้
@@ -370,6 +422,8 @@ export default {
     const cfg = loadConfig(env);
     if (event.cron === '30 10 * * *') ctx.waitUntil(dailySummary(env, cfg));
     // โหมด push: ตัวอ่านในโรงงานเป็นคนส่งค่าเข้ามาเอง cron มีหน้าที่แค่เฝ้าว่ามันยังส่งอยู่ไหม
+    // โหมด local: สมองอยู่บนเครื่องในโรงงาน คลาวด์เหลือหน้าที่เดียวคือเป็นยาม
+    else if (cfg.dataSource === 'local') ctx.waitUntil(checkLocalAlive(env, cfg));
     else if (cfg.dataSource === 'push') ctx.waitUntil(checkPushHealth(env, cfg));
     else ctx.waitUntil(poll(env, cfg));
   },
@@ -591,6 +645,38 @@ async function poll(env, cfg, injected = null) {
  * โหมด push: เช็คว่าตัวอ่านในโรงงานยังส่งข้อมูลอยู่ไหม
  * "เงียบ" ต้องไม่ถูกตีความว่า "ปกติ" — ถ้าตัวอ่านตายแล้วไม่มีใครรู้ จะเข้าใจผิดว่าปลอดภัยอยู่
  */
+/**
+ * ยามเฝ้าเซิร์ฟเวอร์ในโรงงาน
+ *
+ * ทำงานทุก 5 นาทีจาก cron ถ้าสัญญาณ "ยังอยู่ดี" ขาดเกิน localDownMin
+ * แปลว่าเครื่องในโรงงานตายแล้ว ซึ่งเป็นความล้มเหลวที่อันตรายที่สุดของระบบนี้
+ * เพราะทุกอย่างย้ายไปอยู่บนเครื่องนั้นหมดแล้ว ถ้าไม่มีใครบอก จะไปรู้ตอนบิลมา
+ *
+ * เตือนครั้งเดียวต่อการดับหนึ่งครั้ง ไม่ย้ำซ้ำ — คนรู้แล้วก็คือรู้แล้ว
+ * และการย้ำทุก 5 นาทีจะทำให้คนปิดการแจ้งเตือนทิ้ง ซึ่งแย่กว่า
+ */
+async function checkLocalAlive(env, cfg) {
+  const state = (await readState(env)) || emptyState();
+  const hb = state.heartbeat;
+
+  // ยังไม่เคยได้รับสัญญาณเลย = ยังไม่ได้เปิดใช้โหมดนี้ ไม่ใช่ความผิดปกติ
+  if (!hb || !hb.at) return { ok: true, mode: 'ยังไม่ได้ใช้เซิร์ฟเวอร์ในโรงงาน' };
+
+  const quietMin = minutesBetween(Date.now(), hb.at);
+  if (quietMin < cfg.localDownMin) return { ok: true, quietMin: Math.round(quietMin) };
+  if (state.localDownNotifiedAt) return { ok: false, quietMin, alerted: false };
+
+  await writeState(env, { ...state, localDownNotifiedAt: Date.now() });
+  await sendChat(
+    cfg,
+    `🖥️ <b>เซิร์ฟเวอร์ในโรงงานหยุดทำงาน</b>\n${escapeTg(cfg.siteName)} • ${hhmm()} น.\n` +
+      `ไม่ได้รับสัญญาณมา ${Math.round(quietMin)} นาที (ค่าล่าสุดเมื่อ ${hhmm(hb.at)} น.)\n\n` +
+      `ให้ไปเช็คว่าคอมเปิดอยู่ไหม / โปรแกรมยังรันอยู่หรือเปล่า\n\n` +
+      `<i>ตอนนี้ไม่มีใครเฝ้าเพดาน ${cfg.demandLimitKw} kW ให้แล้ว ต้องเฝ้าเองไปก่อนครับ</i>`,
+  );
+  return { ok: false, quietMin, alerted: true };
+}
+
 async function checkPushHealth(env, cfg) {
   const now = Date.now();
   const state = await readState(env);
@@ -872,6 +958,7 @@ export function viewState(state, cfg) {
 }
 
 const r = (n) => (n === null || n === undefined ? null : Math.round(n * 10) / 10);
+const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
 
 /** ทุกโซนเปิด — ใช้เป็นค่า fail-safe เวลาระบบไม่มีข้อมูลสด */
 function allOn(cfg) {
