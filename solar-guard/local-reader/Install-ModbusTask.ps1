@@ -25,9 +25,11 @@ param(
     [string]$TaskName = "Solar Guard Modbus Reader",
     [string]$OldTaskName = "Solar Guard FusionSolar Reader",
     [int]$IntervalSec = 5,
-    # 150 s keeps the day under Cloudflare KV's free-plan write quota of 1,000.
-    # See the note in ModbusReader.ps1 before lowering this.
-    [int]$PushEverySec = 150,
+    # Spend the write quota where the demand charge is actually calculated:
+    # fast during on-peak, slow outside it. 520 + 66 = 586 writes on a weekday,
+    # against Cloudflare KV's free-plan limit of 1,000. See ModbusReader.ps1.
+    [int]$PushEverySec = 90,
+    [int]$PushEverySecOffPeak = 600,
     [string]$LogFile = "$env:USERPROFILE\solar-guard-modbus.log",
     [string]$CsvFile = "$env:USERPROFILE\solar-guard-readings-modbus.csv",
     [switch]$Remove,
@@ -62,6 +64,7 @@ if (-not $isAdmin) {
         "-OldTaskName", $OldTaskName,
         "-IntervalSec", $IntervalSec,
         "-PushEverySec", $PushEverySec,
+        "-PushEverySecOffPeak", $PushEverySecOffPeak,
         "-LogFile", $LogFile,
         "-CsvFile", $CsvFile,
         "-Elevated"
@@ -105,6 +108,7 @@ $argline = @(
     ('-File "{0}"' -f $reader)
     ('-IntervalSec {0}' -f $IntervalSec)
     ('-PushEverySec {0}' -f $PushEverySec)
+    ('-PushEverySecOffPeak {0}' -f $PushEverySecOffPeak)
     ('-LogFile "{0}"' -f $LogFile)
     ('-CsvFile "{0}"' -f $CsvFile)
 ) -join ' '
@@ -128,7 +132,7 @@ Write-Host ""
 Write-Host "Registered: $TaskName" -ForegroundColor Green
 Write-Host "  runs as     : $who"
 Write-Host "  reads every : $IntervalSec s"
-Write-Host "  pushes every: $PushEverySec s"
+Write-Host "  pushes every: $PushEverySec s (on-peak) / $PushEverySecOffPeak s (off-peak)"
 Write-Host "  log         : $LogFile"
 
 # Disable, do not delete - switching back should be one command.

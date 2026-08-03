@@ -48,7 +48,9 @@ export function emptyState() {
  * ที่การไฟฟ้าคิดค่าความต้องการพลังไฟฟ้า พีคที่เกิดตรงนี้จึงแพงกว่าพีคเวลาอื่น
  */
 export function activeThresholds(cfg, ts) {
-  if (!cfg.eveningWatch || !isEveningWatch(cfg, ts)) {
+  // ตั้ง TIGHTEN เป็น 0 = ปิดการเข้มช่วงเย็นไปเลย ต้องไม่ขึ้นแถบ "เฝ้าระวังเข้ม"
+  // บนหน้าจอด้วย ไม่งั้นจะประกาศว่าเข้มขึ้นทั้งที่เกณฑ์เท่าเดิมเป๊ะ
+  if (!cfg.eveningWatch || cfg.eveningWatchTightenKw <= 0 || !isEveningWatch(cfg, ts)) {
     return { warnKw: cfg.warnKw, critKw: cfg.critKw, evening: false };
   }
   return {

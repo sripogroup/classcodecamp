@@ -72,15 +72,22 @@ param(
 
     # How often to send upstream.
     #
-    # This is capped by Cloudflare KV, not by anything electrical: the free
-    # plan allows 1,000 writes per DAY and every push writes state once.
-    # 30 s meant 2,880 writes and the quota was gone by mid-afternoon - the
-    # worker then returned 500 on every push and the dashboard went blank.
+    # Capped by Cloudflare KV, not by anything electrical: the free plan allows
+    # 1,000 writes per DAY and every push writes state once. Pushing every 30 s
+    # meant 2,880 writes, the quota died mid-afternoon, and the worker then
+    # returned 500 on every push until midnight UTC.
     #
-    #   150 s -> 576 writes/day, leaving room for urgent pushes and the cron.
+    # So spend the quota where it actually buys something: the demand charge is
+    # only set during on-peak (Mon-Fri 09:00-22:00). Outside that window a peak
+    # costs 0 baht/kW, so there is nothing to react to quickly.
     #
-    # On the paid plan ($5/month, 1M writes included) this can go back to 30 s.
-    [int]$PushEverySec = 150,
+    #   weekday: 13 h on-peak  / 90 s  = 520
+    #          + 11 h off-peak / 600 s =  66   -> 586 writes
+    #   weekend: 24 h off-peak / 600 s = 144 writes
+    #
+    # Leaves roughly 40% headroom under the 1,000/day cap for urgent pushes.
+    [int]$PushEverySec = 90,          # during on-peak
+    [int]$PushEverySecOffPeak = 600,  # outside it
 
     # Send immediately, without waiting for the timer, once grid import
     # reaches this. Being late on a real spike is the one failure this whole
@@ -89,7 +96,13 @@ param(
 
     # ...but not more often than this, or a sustained busy afternoon would
     # burn the whole daily quota in about eight minutes.
-    [int]$UrgentMinGapSec = 60,
+    [int]$UrgentMinGapSec = 120,
+
+    # Hard stop for normal pushes once the day has used this many. Urgent
+    # pushes still go through. Without a backstop, one bad day of load or a
+    # mis-set interval silently spends the quota and the dashboard dies with
+    # no warning - which is exactly what happened on 2026-08-03.
+    [int]$DailyPushBudget = 850,
 
     # Anything above this is a fault, not power. A 36 kW inverter against a
     # 20 kW ceiling can never produce a three-digit reading.
@@ -273,6 +286,18 @@ function Read-Now {
     }
 }
 
+function Test-OnPeak {
+    <#
+        PEA time-of-use on-peak: Mon-Fri 09:00-21:59. This is the only window
+        where the demand charge (132.93 baht/kW) is calculated, so it is the
+        only window where reacting fast is worth spending write quota on.
+        Thailand is a fixed UTC+7 with no DST, so the local clock is enough.
+    #>
+    param([datetime]$When)
+    if ($When.DayOfWeek -eq 'Saturday' -or $When.DayOfWeek -eq 'Sunday') { return $false }
+    return ($When.Hour -ge 9 -and $When.Hour -lt 22)
+}
+
 function Test-Plausible {
     param($Reading)
     $worst = ([math]::Abs($Reading.Pv)), ([math]::Abs($Reading.Grid)), ([math]::Abs($Reading.Load)) |
@@ -358,6 +383,8 @@ if ($NoPush) { Write-Log "NoPush: recording locally only" }
 $acc = New-Object System.Collections.ArrayList   # readings since the last push
 $lastPush = [datetime]::MinValue
 $fails = 0
+$pushesToday = 0
+$budgetDay = (Get-Date).Date
 
 while ($true) {
     $reading = $null
@@ -392,11 +419,21 @@ while ($true) {
 
     [void]$acc.Add($reading)
 
-    $sincePush = ((Get-Date) - $lastPush).TotalSeconds
+    $now = Get-Date
+    if ($now.Date -ne $budgetDay) { $budgetDay = $now.Date; $pushesToday = 0 }
+
+    $sincePush = ($now - $lastPush).TotalSeconds
     $urgent = $reading.Grid -ge $PushNowKw
-    $due = $sincePush -ge $PushEverySec
+    $interval = if (Test-OnPeak $now) { $PushEverySec } else { $PushEverySecOffPeak }
+    $due = ($sincePush -ge $interval) -and ($pushesToday -lt $DailyPushBudget)
+
+    if ($pushesToday -eq $DailyPushBudget -and -not $urgent) {
+        Write-Log "Daily push budget ($DailyPushBudget) reached - only urgent readings will be sent until midnight" "WARN"
+        $pushesToday++   # log once, not every cycle
+    }
 
     if (-not $NoPush -and ($due -or ($urgent -and $sincePush -ge $UrgentMinGapSec))) {
+        $pushesToday++
         # Normal cadence sends the MEAN of everything read since the last push,
         # which is what the utility's 15-minute average is built from.
         # An urgent send uses the instantaneous value instead, because that is
