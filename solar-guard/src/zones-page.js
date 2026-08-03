@@ -1,0 +1,292 @@
+/**
+ * หน้าวัดโหลดรายโซน — ใช้บนมือถือขณะเดินเปิด-ปิดเครื่องใช้ไฟฟ้าทีละตัว
+ *
+ * ออกแบบให้คนที่กำลังยืนอยู่หน้าเบรกเกอร์ใช้ได้ด้วยมือเดียว:
+ *   ปุ่มใหญ่ ตัวเลขใหญ่ บอกชัดว่าตอนนี้ต้องทำอะไรและอีกกี่นาทีถึงจะพอ
+ *   ไม่ต้องจำว่าโซนไหนต้องเปิดนานแค่ไหน หน้าจอนับถอยหลังให้เอง
+ *
+ * ทั้งหน้าอยู่ในไฟล์เดียว ไม่โหลดอะไรจากข้างนอก เหมือนหน้าจอหลัก
+ */
+
+export function zonesHtml(cfg) {
+  return `<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>วัดโหลดรายโซน — ${esc(cfg.siteName)}</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><text y='52' font-size='52'>⚡</text></svg>">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;background:#0b1120;color:#e2e8f0;
+       min-height:100vh;padding:16px;font-size:16px}
+  .wrap{max-width:760px;margin:0 auto}
+  header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+  h1{font-size:19px;font-weight:700}
+  h2{font-size:15px;color:#94a3b8;margin:26px 0 12px}
+  a.back{color:#60a5fa;text-decoration:none;font-size:15px}
+  .card{background:#111c33;border:1px solid #1e293b;border-radius:16px;padding:18px;margin-bottom:14px}
+  .now{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;text-align:center}
+  .now .l{font-size:13px;color:#94a3b8}
+  .now .v{font-size:27px;font-weight:800;font-variant-numeric:tabular-nums;margin-top:2px}
+  .v.load{color:#60a5fa} .v.base{color:#94a3b8} .v.delta{color:#f59e0b}
+  /* ---- กล่องที่กำลังวัด ---- */
+  #live{border-color:#f59e0b;background:linear-gradient(160deg,#1c1408,#111c33)}
+  #live.ready{border-color:#22c55e;background:linear-gradient(160deg,#062e1c,#111c33)}
+  .lname{font-size:22px;font-weight:800;line-height:1.3}
+  .ltimer{font-size:52px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.1;margin:10px 0 4px}
+  .lhint{font-size:16px;color:#fcd34d;line-height:1.55}
+  #live.ready .lhint{color:#86efac}
+  .prog{height:14px;background:#1e293b;border-radius:99px;overflow:hidden;margin:14px 0}
+  .prog span{display:block;height:100%;background:#f59e0b;transition:width .5s}
+  #live.ready .prog span{background:#22c55e}
+  .lstats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px;text-align:center}
+  .lstats .l{font-size:12px;color:#94a3b8}
+  .lstats .v{font-size:21px;font-weight:700;font-variant-numeric:tabular-nums}
+  /* ---- ปุ่ม ---- */
+  button{font-family:inherit;font-size:17px;font-weight:600;border-radius:12px;padding:15px 18px;
+         cursor:pointer;border:1px solid #334155;background:#1e293b;color:#e2e8f0;width:100%}
+  button:active{transform:scale(.99)}
+  button[disabled]{opacity:.45;cursor:not-allowed}
+  .go{background:#f59e0b;color:#0b1120;border-color:#f59e0b}
+  .stop{background:#22c55e;color:#052e16;border-color:#22c55e}
+  .ghost{background:transparent;color:#94a3b8}
+  .row{display:flex;gap:10px;margin-top:12px}
+  /* ---- รายการโซน ---- */
+  .zlist{display:grid;gap:10px}
+  .z{background:#111c33;border:1px solid #1e293b;border-radius:14px;padding:14px 16px;
+     display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .z.done{border-color:#166534}
+  .z.prot{border-color:#334155;opacity:.9}
+  .z .info{flex:1;min-width:180px}
+  .z .zn{font-size:17px;font-weight:700}
+  .z .zs{font-size:13px;color:#64748b;margin-top:3px;line-height:1.5}
+  .z .kw{font-size:25px;font-weight:800;font-variant-numeric:tabular-nums;color:#f59e0b;white-space:nowrap}
+  .z .kw small{display:block;font-size:11px;color:#64748b;font-weight:600;text-align:right}
+  .z button{width:auto;padding:11px 18px;font-size:15px}
+  .badge{display:inline-block;font-size:11px;padding:3px 9px;border-radius:99px;margin-left:6px;vertical-align:middle}
+  .badge.lock{background:#334155;color:#cbd5e1}
+  .badge.ord{background:#422006;color:#fcd34d}
+  .warn{color:#fca5a5;font-size:13px;margin-top:6px;line-height:1.5}
+  table{width:100%;border-collapse:collapse}
+  th{font-size:12px;color:#64748b;text-align:left;padding:0 8px 8px 0;border-bottom:1px solid #1e293b;font-weight:600}
+  td{padding:11px 8px 11px 0;border-bottom:1px solid #1e293b40;font-size:16px;color:#cbd5e1}
+  td.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:700;color:#f8fafc;white-space:nowrap}
+  .muted{color:#64748b;font-size:14px;line-height:1.7}
+  .err{background:#7f1d1d55;border:1px solid #ef444488;color:#fca5a5;padding:12px 14px;border-radius:10px;margin-bottom:12px}
+  .ok{background:#06402855;border:1px solid #22c55e88;color:#86efac;padding:12px 14px;border-radius:10px;margin-bottom:12px}
+  select{font-family:inherit;font-size:16px;padding:13px;border-radius:12px;background:#0b1120;
+         color:#f8fafc;border:1px solid #334155;width:100%}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>⚡ วัดโหลดรายโซน</h1>
+    <a class="back" href="/">← กลับหน้าจอหลัก</a>
+  </header>
+
+  <div id="msg"></div>
+
+  <div class="card">
+    <div class="now">
+      <div><div class="l">โหลดตอนนี้</div><div class="v load" id="nLoad">–</div></div>
+      <div><div class="l">เส้นฐาน (ไฟส่องสว่าง)</div><div class="v base" id="nBase">–</div></div>
+      <div><div class="l">ส่วนที่เกินฐาน</div><div class="v delta" id="nDelta">–</div></div>
+    </div>
+  </div>
+
+  <div class="card" id="live" style="display:none">
+    <div class="lname" id="lName">–</div>
+    <div class="ltimer" id="lTimer">0:00</div>
+    <div class="lhint" id="lHint">–</div>
+    <div class="prog"><span id="lProg" style="width:0%"></span></div>
+    <div class="lstats">
+      <div><div class="l">ตอนนี้เพิ่มขึ้น</div><div class="v" id="lNow">–</div></div>
+      <div><div class="l">สูงสุดที่เห็น</div><div class="v" id="lPeak">–</div></div>
+      <div><div class="l">เก็บได้</div><div class="v" id="lSamples">–</div></div>
+    </div>
+    <div class="row">
+      <button class="stop" id="btnStop">จบการวัด แล้วปิดโซนนี้</button>
+      <button class="ghost" id="btnCancel" style="max-width:120px">ทิ้ง</button>
+    </div>
+  </div>
+
+  <div class="card" id="starter">
+    <div class="muted" id="nextHint" style="margin-bottom:10px"></div>
+    <select id="pick"></select>
+    <div class="row"><button class="go" id="btnStart">เริ่มวัดโซนนี้ (เปิดเครื่องแล้วค่อยกด)</button></div>
+    <div class="muted" style="margin-top:10px">
+      กดตอนที่เพิ่งเปิดเครื่องเสร็จ ระบบจะเทียบกับ 90 วินาทีก่อนหน้าเป็นเส้นฐานให้เอง
+    </div>
+  </div>
+
+  <h2>ผลที่วัดได้แล้ว</h2>
+  <div class="zlist" id="zlist"></div>
+
+  <h2>ลำดับที่ระบบจะสั่งให้ปิดเวลาไฟเกิน</h2>
+  <div class="card">
+    <table id="shed"><tbody></tbody></table>
+    <div class="muted" id="shedNote" style="margin-top:12px"></div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let DATA = null, tick = null;
+
+const kw = (v) => (v === null || v === undefined ? '–' : v.toFixed(1) + ' kW');
+const mmss = (s) => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+
+function msg(text, kind) {
+  $('msg').innerHTML = text ? '<div class="' + (kind || 'ok') + '">' + text + '</div>' : '';
+  if (text) setTimeout(() => { if ($('msg').textContent === text) $('msg').innerHTML = ''; }, 9000);
+}
+
+async function api(path, body) {
+  const res = await fetch(path, body
+    ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+    : {});
+  const out = await res.json().catch(() => ({ ok: false, error: 'ตอบกลับมาไม่ใช่ JSON' }));
+  if (!res.ok || out.ok === false) throw new Error(out.error || ('HTTP ' + res.status));
+  return out;
+}
+
+async function load() {
+  try {
+    const [z, s] = await Promise.all([api('/api/loads'), api('/api/state')]);
+    DATA = z; DATA.state = s;
+    render();
+  } catch (e) { msg('โหลดข้อมูลไม่ได้: ' + e.message, 'err'); }
+}
+
+function render() {
+  const d = DATA;
+  const loadKw = d.state?.loadKw ?? null;
+  $('nLoad').textContent = kw(loadKw);
+  $('nBase').textContent = kw(d.baselineKw);
+  $('nDelta').textContent = (loadKw !== null && d.baselineKw !== null) ? kw(Math.max(0, loadKw - d.baselineKw)) : '–';
+
+  // ---- กล่องกำลังวัด ----
+  const r = d.running;
+  $('live').style.display = r ? 'block' : 'none';
+  $('starter').style.display = r ? 'none' : 'block';
+  if (r) {
+    $('lName').textContent = r.name;
+    const live = r.live || {};
+    $('lNow').textContent = kw(live.steadyKw);
+    $('lPeak').textContent = kw(live.peakKw);
+    $('lSamples').textContent = (live.samples || 0) + ' จุด';
+  }
+
+  // ---- รายการโซน ----
+  $('zlist').innerHTML = d.zones.map((z) => {
+    const m = z.measured;
+    const cls = 'z' + (m ? ' done' : '') + (z.protectedZone ? ' prot' : '');
+    const sub = [];
+    if (z.protectedZone) sub.push('ปิดไม่ได้');
+    else if (z.shedOrder) sub.push('ปิดเป็นลำดับที่ ' + z.shedOrder);
+    sub.push('ต้องเปิดค้าง ' + z.minutes + ' นาที');
+    if (m) sub.push('วัดเมื่อ ' + when(m.at));
+    if (z.note) sub.push(z.note);
+    const warn = m && m.warnings && m.warnings.length
+      ? '<div class="warn">⚠ ' + m.warnings.join('<br>⚠ ') + '</div>' : '';
+    const val = m
+      ? '<div class="kw">' + m.steadyKw.toFixed(1) + '<small>เดินปกติ (พีค ' + m.peakKw.toFixed(1) + ')</small></div>'
+      : '';
+    const btn = d.running ? '' :
+      '<button data-go="' + z.slug + '">' + (m ? 'วัดใหม่' : 'วัด') + '</button>';
+    return '<div class="' + cls + '"><div class="info"><div class="zn">' + z.name +
+      (z.protectedZone ? '<span class="badge lock">🔒 ห้ามปิด</span>' : '') +
+      '</div><div class="zs">' + sub.join(' · ') + '</div>' + warn + '</div>' + val + btn + '</div>';
+  }).join('');
+
+  document.querySelectorAll('[data-go]').forEach((b) => {
+    b.onclick = () => start(b.dataset.go);
+  });
+
+  // ---- ตัวเลือกโซนถัดไป ----
+  $('pick').innerHTML = d.zones.map((z) =>
+    '<option value="' + z.slug + '"' + (d.nextSuggestion && d.nextSuggestion.slug === z.slug ? ' selected' : '') + '>' +
+    z.name + ' — เปิดค้าง ' + z.minutes + ' นาที' + (z.measured ? ' (วัดแล้ว)' : '') + '</option>').join('');
+  $('nextHint').textContent = d.nextSuggestion
+    ? 'วัดแล้ว ' + d.doneCount + ' จาก ' + d.totalCount + ' โซน — ถัดไปที่แนะนำ: ' + d.nextSuggestion.name
+    : 'วัดครบทุกโซนแล้ว ' + d.doneCount + '/' + d.totalCount;
+
+  // ---- ลำดับการปิด ----
+  const rows = d.shedList.map((s, i) =>
+    '<tr><td>' + (i + 1) + '. ' + s.name + (s.owner ? ' <span class="muted">— ' + s.owner + '</span>' : '') +
+    '</td><td class="n">−' + s.kw.toFixed(1) + ' kW</td></tr>').join('');
+  $('shed').querySelector('tbody').innerHTML = rows ||
+    '<tr><td class="muted">ยังไม่มีข้อมูล — วัดอย่างน้อยหนึ่งโซนก่อน</td></tr>';
+  $('shedNote').innerHTML = d.shedList.length
+    ? 'ปิดครบทั้งหมดนี้ลดได้ <b>' + d.totalShedableKw.toFixed(1) + ' kW</b> — ' +
+      'เวลาไฟเกิน ระบบจะเลือกจากบนลงล่างให้พอดีกับส่วนที่เกิน แล้วส่งเข้า Telegram / LINE / อีเมล ' +
+      'ไฟส่องสว่างไม่อยู่ในรายการนี้เพราะสั่งปิดไม่ได้'
+    : 'เวลาไฟเกินตอนนี้ ระบบยังใช้รายการตัวอย่างที่เดาไว้ในโค้ด ซึ่งไม่ตรงกับของจริง';
+}
+
+function when(ts) {
+  const d = new Date(ts + 7 * 3600000);
+  return d.getUTCDate() + '/' + (d.getUTCMonth() + 1) + ' ' +
+    String(d.getUTCHours()).padStart(2, '0') + ':' + String(d.getUTCMinutes()).padStart(2, '0');
+}
+
+async function start(slug) {
+  try {
+    await api('/api/loads/start', { zone: slug });
+    msg('เริ่มจับเวลาแล้ว — เปิดค้างไว้จนกว่าหน้าจอจะเป็นสีเขียว');
+    await load();
+  } catch (e) { msg(e.message, 'err'); }
+}
+
+$('btnStart').onclick = () => start($('pick').value);
+
+$('btnCancel').onclick = async () => {
+  if (!confirm('ทิ้งการวัดนี้ ไม่เก็บผล?')) return;
+  try { await api('/api/loads/cancel', {}); await load(); msg('ทิ้งแล้ว'); }
+  catch (e) { msg(e.message, 'err'); }
+};
+
+$('btnStop').onclick = async () => {
+  const r = DATA?.running;
+  const need = (r?.minutes || 15) * 60;
+  const el = (Date.now() - (r?.startedAt || 0)) / 1000;
+  if (el < need && !confirm('ยังเปิดไม่ครบ ' + r.minutes + ' นาที ค่าที่ได้จะสูงกว่าจริง จบเลยไหม?')) return;
+  try {
+    const out = await api('/api/loads/stop', {});
+    const x = out.result;
+    msg('บันทึกแล้ว: <b>' + x.name + '</b> กินไฟ <b>' + x.steadyKw.toFixed(1) + ' kW</b> ' +
+        '(พีคตอนสตาร์ท ' + x.peakKw.toFixed(1) + ' kW) — ปิดโซนนี้ได้เลย ' +
+        'รอโหลดนิ่งสัก 2 นาทีแล้วค่อยเปิดโซนถัดไป' +
+        (x.warnings.length ? '<br>⚠ ' + x.warnings.join('<br>⚠ ') : ''));
+    await load();
+  } catch (e) { msg(e.message, 'err'); }
+};
+
+// นับเวลาเดินหน้าทุกวินาที (ไม่ต้องรอรอบดึงข้อมูล จะได้ไม่กระตุก)
+setInterval(() => {
+  const r = DATA?.running;
+  if (!r) return;
+  const el = (Date.now() - r.startedAt) / 1000;
+  const need = r.minutes * 60;
+  const done = el >= need;
+  $('lTimer').textContent = mmss(el);
+  $('lProg').style.width = Math.min(100, (el / need) * 100) + '%';
+  $('live').className = 'card' + (done ? ' ready' : '');
+  $('lHint').innerHTML = done
+    ? '✅ ครบเวลาแล้ว — กดปุ่มข้างล่างเพื่อบันทึก แล้วปิดโซนนี้ได้เลย'
+    : 'เปิดค้างไว้ก่อน อีก <b>' + mmss(need - el) + '</b> ('
+      + r.minutes + ' นาที เพื่อให้ผ่านช่วงกินไฟสูงตอนเพิ่งเปิด แล้วเข้าสู่รอบเดินปกติ)';
+}, 1000);
+
+load();
+setInterval(load, 10000);
+</script>
+</body>
+</html>`;
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}

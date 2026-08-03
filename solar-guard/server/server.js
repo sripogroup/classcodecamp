@@ -34,6 +34,8 @@ import { Inverter } from './modbus.js';
 import { makeRelay } from './notify-relay.js';
 import { fillGaps, thaiMidnight } from './gapfill.js';
 import { rebuildFromStore, applyRebuild } from './rebuild.js';
+import { Zones, buildShedList } from './zones.js';
+import { zonesHtml } from '../src/zones-page.js';
 
 const args = new Set(process.argv.slice(2));
 const NO_ALERTS = args.has('--no-alerts');
@@ -52,6 +54,24 @@ const inv = new Inverter({
 let lastHeartbeat = 0;
 let lastSummaryDay = '';
 let consecutiveFails = 0;
+
+const zones = new Zones(store, (m) => log(m));
+
+/**
+ * เอาค่าที่วัดได้จริงรายโซน ไปแทนรายการ "ให้ไปปิดอะไร" ที่ใช้ตอนเตือน
+ *
+ * รายการตั้งต้นในโค้ดเป็นตัวอย่างสมมติ (ปั๊มน้ำสำรอง คอมเพรสเซอร์ตัวที่ 2)
+ * ซึ่งไม่มีอยู่จริงที่นี่ พอวัดโซนจริงแล้วต้องให้ข้อความที่ส่งออกทุกช่องทาง
+ * พูดถึงของที่มีอยู่จริง พร้อมตัวเลขที่วัดมาเอง
+ *
+ * เรียกทุกครั้งที่วัดเสร็จ ไม่ต้องรีสตาร์ทเซิร์ฟเวอร์
+ */
+function applyShedList() {
+  const list = buildShedList(zones);
+  if (!list.length) return 0;
+  cfg.loadShed = list;
+  return list.length;
+}
 
 const log = (msg, level = 'INFO') => {
   const line = `[${new Date().toLocaleString('sv-SE')}] ${level} ${msg}`;
@@ -253,6 +273,16 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
+/** อ่าน body ที่เป็น JSON — จำกัดขนาดไว้ ไม่ให้ใครยัดอะไรใหญ่ ๆ เข้ามา */
+async function readJson(req, limit = 8192) {
+  let body = '';
+  for await (const chunk of req) {
+    body += chunk;
+    if (body.length > limit) break;
+  }
+  try { return JSON.parse(body || '{}'); } catch { return {}; }
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const send = (code, body, type = 'application/json; charset=utf-8') => {
@@ -368,6 +398,46 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // ---- วัดโหลดรายโซน ----
+    //
+    // มีไว้ตอบคำถามเดียว: ไฟเกินแล้วให้ไปปิดอะไรก่อน ถึงจะลงพอโดยกวนคนน้อยสุด
+    // ตอบไม่ได้ถ้าไม่รู้ว่าแต่ละตัวกินเท่าไร จึงต้องเปิดทีละตัวแล้ววัดจริง
+    if (url.pathname === '/loads') {
+      return send(200, zonesHtml(cfg), 'text/html; charset=utf-8');
+    }
+    if (url.pathname === '/api/loads') {
+      return send(200, { ok: true, ...zones.overview(cfg) });
+    }
+    if (url.pathname === '/api/loads/start' && req.method === 'POST') {
+      const body = await readJson(req);
+      const t = zones.start(String(body.zone || ''));
+      return send(200, { ok: true, test: t });
+    }
+    if (url.pathname === '/api/loads/stop' && req.method === 'POST') {
+      const body = await readJson(req);
+      const result = zones.stop(String(body.note || ''));
+      const n = applyShedList();
+      log(`รายการให้ไปปิดตอนไฟเกิน อัปเดตแล้ว ${n} รายการ (จากค่าที่วัดจริง)`);
+      return send(200, { ok: true, result, shedCount: n });
+    }
+    // บันทึกย้อนหลัง: {zone, fromMinAgo, toMinAgo} — เผื่อเปิดเครื่องไปแล้วค่อยนึกได้
+    if (url.pathname === '/api/loads/record' && req.method === 'POST') {
+      const b = await readJson(req);
+      const now = Date.now();
+      const from = now - Number(b.fromMinAgo || 0) * 60000;
+      const to = now - Number(b.toMinAgo || 0) * 60000;
+      const result = zones.record(String(b.zone || ''), from, to, String(b.note || ''));
+      const n = applyShedList();
+      return send(200, { ok: true, result, shedCount: n });
+    }
+    if (url.pathname === '/api/loads/cancel' && req.method === 'POST') {
+      return send(200, { ok: true, cancelled: zones.cancel() });
+    }
+    if (url.pathname === '/api/loads/history') {
+      const z = url.searchParams.get('zone');
+      return send(200, { ok: true, tests: z ? zones.history(z) : [] });
+    }
+
     if (url.pathname === '/api/health') {
       return send(200, { ok: true, inverter: inv.connected, fails: consecutiveFails, db: store.stats() });
     }
@@ -382,6 +452,14 @@ const server = http.createServer(async (req, res) => {
 log(`Solar Guard เซิร์ฟเวอร์ในโรงงาน${NO_ALERTS ? ' [โหมดเทียบตัวเลข: ไม่ส่งแจ้งเตือนจริง]' : ''}`);
 log(`อินเวอร์เตอร์ ${L.inverterHost}:${L.inverterPort} unit ${L.inverterUnit} (meterSign ${L.modbusMeterSign})`);
 log(`ฐานข้อมูล ${L.dbFile}`);
+
+// ถ้าเคยวัดโหลดรายโซนไว้ ให้ใช้ค่าจริงตั้งแต่วินาทีแรก ไม่ต้องรอวัดใหม่
+{
+  const n = applyShedList();
+  log(n
+    ? `รายการให้ไปปิดตอนไฟเกิน: ใช้ค่าที่วัดจริง ${n} โซน (แก้ได้ที่หน้า /zones)`
+    : 'ยังไม่เคยวัดโหลดรายโซน — เวลาเตือนจะยังใช้รายการตัวอย่างที่เดาไว้ (ไปวัดที่หน้า /zones)');
+}
 
 // เปิดหน้าเว็บก่อนแตะอินเวอร์เตอร์
 //

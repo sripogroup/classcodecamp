@@ -222,6 +222,27 @@ export class Zones {
     return result;
   }
 
+  /**
+   * บันทึกย้อนหลัง — "ช่วง X ถึง Y ที่ผ่านมา เปิดโซนนี้อยู่"
+   *
+   * มีเพราะคนเปิดเครื่องก่อนแล้วค่อยนึกได้ว่าต้องกดจับเวลา ถ้าไม่มีทางนี้
+   * ก็ต้องไปปิดแล้วเปิดใหม่รอบหนึ่งเปล่า ๆ ทั้งที่ข้อมูลดิบเก็บไว้ครบอยู่แล้ว
+   */
+  record(slug, from, to, note = '') {
+    const zone = zoneBySlug(slug);
+    if (!zone) throw new Error(`ไม่รู้จักโซน "${slug}"`);
+    if (!(to > from)) throw new Error('ช่วงเวลาไม่ถูกต้อง');
+    const r = this.db
+      .prepare("INSERT INTO zone_tests (zone, started_at, ended_at, status, note) VALUES (?,?,?,'done',?)")
+      .run(slug, Math.round(from), Math.round(to), note || null);
+
+    const row = this.db.prepare('SELECT * FROM zone_tests WHERE id = ?').get(Number(r.lastInsertRowid));
+    const result = computeTest(this.store, row);
+    this.db.prepare('UPDATE zone_tests SET snapshot = ? WHERE id = ?').run(JSON.stringify(result), row.id);
+    this.log(`บันทึกย้อนหลัง "${result.name}" — เดินปกติ ${result.steadyKw} kW / พีค ${result.peakKw} kW`);
+    return result;
+  }
+
   cancel() {
     const cur = this.running();
     if (!cur) return null;

@@ -110,6 +110,14 @@ export function dashboardHtml(cfg, token) {
   button{background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:10px;padding:10px 18px;font-size:15px;cursor:pointer;font-family:inherit}
   button.on{background:#166534;border-color:#22c55e;color:#dcfce7}
   .legend{display:flex;gap:16px;font-size:13px;color:#94a3b8;margin-top:8px}
+  /* แถบเสียงบนสุด — เขียวเมื่อพร้อมส่งเสียง แดงกะพริบเมื่อเงียบอยู่ */
+  .soundbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;
+            border-radius:14px;padding:12px 18px;margin-bottom:16px;font-size:16px;font-weight:600;
+            background:#064e3b55;border:1px solid #22c55e66;color:#86efac}
+  .soundbar.off{background:#7f1d1d55;border-color:#ef4444aa;color:#fca5a5;animation:pulse 1.6s infinite}
+  .soundbar button{padding:9px 15px;font-size:14px}
+  .navbtn{background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:10px;
+          padding:10px 16px;font-size:15px;font-weight:600;text-decoration:none;white-space:nowrap}
   .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
 </style>
 </head>
@@ -117,8 +125,21 @@ export function dashboardHtml(cfg, token) {
 <div class="wrap">
   <header>
     <h1>⚡ เฝ้าระวังการใช้ไฟ — ${escapeHtml(cfg.siteName)}</h1>
-    <div class="clock" id="clock">--:--</div>
+    <div style="display:flex;align-items:center;gap:14px">
+      <a class="navbtn" href="/loads">🔌 โหลดรายโซน</a>
+      <div class="clock" id="clock">--:--</div>
+    </div>
   </header>
+
+  <!-- แถบเสียงอยู่บนสุดโดยตั้งใจ: เสียงคือสิ่งเดียวที่เรียกคนได้ตอนไม่มีใครมองจอ
+       ถ้าอยู่ท้ายหน้าแบบเดิม ต้องเลื่อนลงไปหาถึงจะรู้ว่ามันปิดอยู่ ซึ่งไม่มีใครทำ -->
+  <div class="soundbar" id="soundBar">
+    <span id="soundState">🔊 เสียงเตือนเปิดอยู่</span>
+    <span style="display:flex;gap:10px;flex-wrap:wrap">
+      <button id="soundBtn">ปิดเสียง</button>
+      <button id="testBtn">🔔 ทดสอบเสียงไซเรน</button>
+    </span>
+  </div>
 
   <div class="status stale" id="status">
     <div class="lamp"></div>
@@ -128,8 +149,6 @@ export function dashboardHtml(cfg, token) {
       <div id="emgLine" style="display:none;margin-top:8px;font-size:20px;font-weight:800;color:#fecaca"></div>
     </div>
   </div>
-
-  <div id="audioWarn" style="display:none;margin-top:16px;background:#7f1d1d33;border:1px solid #ef444488;border-radius:14px;padding:14px 18px;font-size:17px;color:#fca5a5"></div>
 
   <div id="eveBanner" style="display:none;margin-top:16px;background:#f59e0b1a;border:1px solid #f59e0b66;border-radius:14px;padding:14px 18px;font-size:17px;line-height:1.55;color:#fcd34d"></div>
 
@@ -291,10 +310,7 @@ export function dashboardHtml(cfg, token) {
 
   <footer>
     <span id="updated">—</span>
-    <span style="display:flex;gap:10px;flex-wrap:wrap">
-      <button id="soundBtn">🔇 เปิดเสียงเตือน</button>
-      <button id="testBtn">🔔 ทดสอบเสียงไซเรน</button>
-    </span>
+    <a href="/loads" style="color:#60a5fa;text-decoration:none">⚡ วัดโหลดรายโซน →</a>
   </footer>
 </div>
 
@@ -304,22 +320,41 @@ const WATCH_HOUR = ${Number(cfg.eveningWatchHour) || 15};
 /* ช่วงเวลาที่กราฟแสดง — ตัดกลางดึกที่ร้านปิดแล้วออกไป */
 const CHART_FROM = ${Number(cfg.chartStartHour) || 5.5};
 const CHART_TO = ${Number(cfg.chartEndHour) || 21};
-let soundOn = localStorage.getItem('solarSound') === '1';
+/* เสียงเปิดไว้เป็นค่าตั้งต้น — ต้องกดปิดเองถึงจะเงียบ
+   ของเดิมต้องกดเปิดทุกครั้งที่เปิดหน้าใหม่ ซึ่งแปลว่าจอที่รีเฟรชเองหรือเครื่อง
+   ที่เพิ่งรีสตาร์ทจะกลับไปเงียบสนิทโดยไม่มีใครรู้ จนถึงวันที่ต้องพึ่งมันจริง ๆ */
+let soundOn = localStorage.getItem('solarSound') !== '0';
 let audioCtx = null, sirenTimer = null, lastLevel = 'green';
 
 const btn = document.getElementById('soundBtn');
-function paintBtn(){ btn.textContent = soundOn ? '🔊 เสียงเตือนเปิดอยู่' : '🔇 เปิดเสียงเตือน'; btn.className = soundOn ? 'on' : ''; }
+const soundBar = document.getElementById('soundBar');
+const soundState = document.getElementById('soundState');
+function paintBtn(){
+  const blocked = audioBlocked();
+  btn.textContent = soundOn ? 'ปิดเสียง' : 'เปิดเสียง';
+  soundState.innerHTML = !soundOn
+    ? '🔇 <b>เสียงเตือนถูกปิดอยู่</b> — ตอนไฟแดงจะไม่มีเสียงอะไรเลย'
+    : blocked
+      ? '👆 <b>แตะที่หน้าจอหนึ่งครั้ง</b> เพื่อปลดล็อกเสียง (เบราว์เซอร์บังคับ)'
+      : '🔊 เสียงเตือนเปิดอยู่ พร้อมส่งเสียงเมื่อไฟแดง';
+  soundBar.className = 'soundbar' + (soundOn && !blocked ? '' : ' off');
+}
 btn.onclick = () => {
   soundOn = !soundOn;
   localStorage.setItem('solarSound', soundOn ? '1' : '0');
-  paintBtn();
   if (soundOn) {
     ensureAudio(); beep(880, 0.15);
     /* ขอสิทธิ์แจ้งเตือนตอนนี้เลย ต้องขอตอนคนกดปุ่มเท่านั้น เบราว์เซอร์ถึงจะยอม */
     try { if('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch(e){}
   } else stopSiren();
+  paintBtn(); paintAudioWarn();
 };
+
+/* ลองปลดล็อกเสียงทันทีที่เปิดหน้า — ได้ผลบนจอติดผนังที่เคยแตะไว้แล้ว
+   ถ้าเบราว์เซอร์ไม่ยอม แถบด้านบนจะเป็นสีแดงบอกให้แตะหน้าจอ ไม่เงียบหายไปเฉย ๆ */
+try { ensureAudio(); } catch(e){}
 paintBtn();
+setInterval(paintBtn, 3000);
 
 /* ทดสอบเสียงได้โดยไม่ต้องรอให้ไฟหลวงพุ่งจริง
    ก่อนหน้านี้ทางเดียวที่จะได้ยินไซเรนคือรอให้สถานะเป็นแดงจริง ซึ่งแปลว่า
@@ -333,8 +368,8 @@ testBtn.onclick = () => {
   if (!soundOn) {
     soundOn = true;
     localStorage.setItem('solarSound', '1');
-    paintBtn();
   }
+  paintBtn();
   ensureAudio();
   try { if('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch(e){}
 
@@ -365,19 +400,11 @@ testBtn.onclick = () => {
 function audioBlocked(){
   return soundOn && (!audioCtx || audioCtx.state === 'suspended');
 }
-function paintAudioWarn(){
-  const el = document.getElementById('audioWarn');
-  const need = !soundOn || audioBlocked();
-  el.style.display = need ? 'block' : 'none';
-  if (need) {
-    el.innerHTML = soundOn
-      ? '🔇 <b>เบราว์เซอร์ปิดเสียงไว้</b> — แตะที่หน้าจอนี้หนึ่งครั้งเพื่อปลดล็อกเสียงเตือน'
-      : '🔇 <b>ยังไม่ได้เปิดเสียงเตือน</b> — กดปุ่ม "เปิดเสียงเตือน" ด้านล่าง ไม่งั้นตอนไฟแดงจะไม่มีเสียงอะไรเลย';
-  }
-}
+/* แถบเสียงบนสุดบอกสถานะนี้อยู่แล้ว ไม่ต้องมีกล่องเตือนซ้ำอีกกล่องกลางหน้า */
+const paintAudioWarn = paintBtn;
 /* แตะตรงไหนก็ได้ = ปลดล็อกเสียง (เบราว์เซอร์นับว่าเป็น user gesture) */
 ['click','touchstart','keydown'].forEach((ev) =>
-  document.addEventListener(ev, () => { if(soundOn){ ensureAudio(); paintAudioWarn(); } }, { passive: true }));
+  document.addEventListener(ev, () => { if(soundOn){ ensureAudio(); paintAudioWarn(); paintBtn(); } }, { passive: true }));
 
 function ensureAudio(){ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); }
 function beep(freq, dur){
