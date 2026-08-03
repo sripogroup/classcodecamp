@@ -185,18 +185,34 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Solar Guard*" } |
     Select-Object TaskName, State | Format-Table -AutoSize
 
 # ---- prove it actually answers, do not just claim it started ---------------
+#
+# 401 counts as alive. The dashboard is token-protected, and this script has no
+# business reading the token just to ping it - an HTTP reply of any kind proves
+# the process is up and listening, which is the only thing being checked here.
+# Treating 401 as failure made the installer report a broken server that was in
+# fact working perfectly.
 $ok = $false
 try {
     $r = Invoke-WebRequest -Uri "http://localhost:$Port/api/health" -UseBasicParsing -TimeoutSec 10
-    if ($r.StatusCode -eq 200) { $ok = $true; Write-Host "Health check: $($r.Content)" -ForegroundColor Green }
+    $ok = $true
+    Write-Host "Health check: $($r.Content)" -ForegroundColor Green
 } catch {
-    Write-Host "Health check failed: $($_.Exception.Message)" -ForegroundColor Red
+    $code = 0
+    if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode }
+    if ($code -eq 401) {
+        $ok = $true
+        Write-Host "Health check: server is up (401 = dashboard token required, as expected)" -ForegroundColor Green
+    } else {
+        Write-Host "Health check failed: $($_.Exception.Message)" -ForegroundColor Red
+    }
 }
 
 if (Test-Path $LogFile) {
     Write-Host ""
     Write-Host "Last lines of the log:" -ForegroundColor Cyan
-    Get-Content $LogFile -Tail 8
+    # -Encoding utf8 matters: the log is written as UTF-8 but PowerShell 5.1
+    # reads with the ANSI codepage by default, which turns Thai into mojibake.
+    Get-Content $LogFile -Tail 8 -Encoding utf8
 }
 
 Write-Host ""
