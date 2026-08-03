@@ -350,6 +350,24 @@ const server = http.createServer(async (req, res) => {
       const rows = store.history(from).filter((r) => !to || r.t < to);
       return send(200, { samples: rows, dayStart: to ? from : null });
     }
+    // ปิดตัวเองเพื่อให้ watchdog เปิดใหม่ = วิธีรีสตาร์ทที่ไม่ต้องใช้สิทธิ์ผู้ดูแล
+    //
+    // watchdog ของร้านรันด้วย S4U โปรเซสนี้จึงอยู่ใน session 0 คนละที่กับหน้าจอ
+    // ที่คนล็อกอินอยู่ ใครที่ไม่ได้เป็นผู้ดูแลจึงสั่งหยุดมันไม่ได้เลย
+    // ซึ่งแปลว่าการแก้โค้ดทุกครั้งต้องไปรบกวนคนให้มากดอนุญาต
+    //
+    // ทางออกคือให้มันฆ่าตัวเอง แล้ว watchdog เก็บกวาดให้ภายใน 1 นาที
+    // ต้องมีโทเคนถึงจะสั่งได้ และเป็น POST เท่านั้น กันคนกดลิงก์เล่น
+    if (url.pathname === '/api/restart' && req.method === 'POST') {
+      log('ได้รับคำสั่งรีสตาร์ท — ปิดตัวเอง แล้วให้ watchdog เปิดใหม่ (ไม่เกิน 1 นาที)', 'WARN');
+      send(200, { ok: true, note: 'watchdog จะเปิดใหม่ภายใน 1 นาที' });
+      setTimeout(() => {
+        try { inv.disconnect(); store.close(); } catch { /* กำลังจะออกอยู่แล้ว */ }
+        process.exit(0);
+      }, 300);
+      return;
+    }
+
     if (url.pathname === '/api/health') {
       return send(200, { ok: true, inverter: inv.connected, fails: consecutiveFails, db: store.stats() });
     }
