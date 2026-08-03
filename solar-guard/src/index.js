@@ -112,6 +112,7 @@ export default {
 
         const state = (await readState(env)) || emptyState();
 
+        let droppedSamples = 0;
         let bill = emptyBill(usable[0].t);
         for (const s of usable) bill = feedBill(bill, s.t, cfg.meterSign * s.grid, cfg);
         state.bill = bill;
@@ -136,6 +137,18 @@ export default {
             if (thDateKey(s.t) === todayKey && g > peakToday.kw) peakToday = { kw: round1(g), at: s.t };
           }
 
+          // ล้างจุดขยะออกจากประวัติที่ใช้วาดกราฟด้วย
+          //
+          // กราฟปรับสเกลแกนตั้งตามค่าสูงสุดที่มีอยู่ จุด 1,279 kW จุดเดียวจึงยืดแกน
+          // ไปถึงพันกว่า เส้นจริง 0-25 kW ถูกกดแบนติดขอบล่างจนมองไม่เห็นทั้งกราฟ
+          const before = (state.samples || []).length;
+          state.samples = (state.samples || []).filter(
+            (s) => Math.abs(s.grid ?? 0) <= cfg.maxPlausibleKw
+              && Math.abs(s.pv ?? 0) <= cfg.maxPlausibleKw
+              && Math.abs(s.load ?? 0) <= cfg.maxPlausibleKw,
+          );
+          droppedSamples = before - state.samples.length;
+
           state.demand = demand;
           // โหลดกับโซลาร์ไม่ได้ส่งมากับ backfill จึงเก็บของเดิมไว้ ยกเว้นที่เกินเพดาน
           const old = state.monthPeaks && state.monthPeaks.key === mk ? state.monthPeaks : null;
@@ -157,6 +170,7 @@ export default {
           used: usable.length,
           dropped: clean.length - usable.length,
           rebuiltPeaks: !!body.rebuildPeaks,
+          droppedSamples,
           from: usable[0].t,
           to: usable[usable.length - 1].t,
           month: billView(bill, cfg, 'month'),

@@ -283,6 +283,29 @@ await test('ส่งค่าเข้ามาได้ และคำนว�
   assert.ok(r.window, 'ต้องคิดหน้าต่าง 15 นาทีให้ด้วย');
 });
 
+await test('ค่าที่เป็นไปไม่ได้ทางกายภาพ -> ทิ้งทั้งจุด ไม่ให้ไปเปื้อนพีคของเดือน', async () => {
+  // เกิดขึ้นจริงเมื่อ 3 ส.ค. 2569: พอร์ทัลส่งค่า 1,279 kW เข้ามาบนระบบ 36 kW
+  // จุดเดียวทำให้พีควัน พีคเดือน และหน้าต่าง 15 นาที เสียหายทั้งเดือน
+  const env = { ...PUSH_ENV, SOLAR_KV: fakeKV(), SYSTEM_KWP: '36', DEMAND_LIMIT_KW: '20' };
+  installFakeFetch({});
+
+  Date.now = () => START;
+  const ok = await (await postIngest(env, { pv: 8.2, grid: 4.7 })).json();
+  assert.equal(ok.ok, true, 'ค่าปกติต้องผ่าน');
+
+  const bad = await (await postIngest(env, { pv: 8.2, grid: 1279.445 })).json();
+  Date.now = realNow;
+
+  assert.equal(bad.ok, false, 'ค่า 1,279 kW ต้องไม่ผ่าน');
+  assert.match(bad.error, /เป็นไปไม่ได้/, 'ต้องบอกเหตุผลให้อ่านรู้เรื่อง');
+
+  // ของสำคัญที่สุด: ต้องไม่มีร่องรอยค่าขยะค้างอยู่ในสถิติใด ๆ
+  const st = await (await worker.fetch(new Request('https://x/api/state'), env, { waitUntil() {} })).json();
+  assert.ok((st.peakToday?.kw || 0) < 100, `พีควันนี้ต้องไม่ติดค่าขยะ ได้ ${st.peakToday?.kw}`);
+  assert.ok((st.month?.peakKw || 0) < 100, `พีคเดือนต้องไม่ติดค่าขยะ ได้ ${st.month?.peakKw}`);
+  assert.ok((st.monthPeaks?.gridKw || 0) < 100, `สูงสุดของเดือนต้องไม่ติดค่าขยะ ได้ ${st.monthPeaks?.gridKw}`);
+});
+
 await test('ไม่มีรหัสหรือรหัสผิด -> ปฏิเสธ', async () => {
   const env = { ...PUSH_ENV, SOLAR_KV: fakeKV() };
   installFakeFetch({});

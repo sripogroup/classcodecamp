@@ -559,7 +559,11 @@ function Push-Sample {
 function Push-Backfill {
     param([string]$Worker, [string]$Token, [array]$Rows)
 
-    $body = @{ samples = $Rows } | ConvertTo-Json -Compress -Depth 4
+    # rebuildPeaks: also rebuild the day/month peaks and the 15-minute window
+    # from this history. Needed because those are running maxima - a single bad
+    # reading sticks until the month rolls over and cannot be cleared any other
+    # way. Alerting state (level, ack, send history) is left untouched.
+    $body = @{ samples = $Rows; rebuildPeaks = $true } | ConvertTo-Json -Compress -Depth 4
     return Invoke-RestMethod -Uri ($Worker.TrimEnd("/") + "/api/backfill") -Method POST `
         -Body $body -ContentType "application/json" -TimeoutSec 120 `
         -Headers @{ "X-Ingest-Token" = $Token }
