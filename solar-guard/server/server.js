@@ -303,7 +303,19 @@ async function tick() {
   const hh = Number(hhmm().slice(0, 2));
   if (!NO_ALERTS && hh >= 17 && today !== lastSummaryDay) {
     lastSummaryDay = today;
-    const msg = buildDailySummary(out.state, cfg, Date.now(), monthHeadroom(out.state.demand || emptyDemand(), cfg));
+    // ส่งข้อมูลทั้งวันจากฐานข้อมูลเข้าไปคิด ไม่ใช่ประวัติย่อที่ติดมากับ state
+    //
+    // state.samples เก็บไว้ไม่กี่ชั่วโมงเพราะมันถูกออกแบบมาให้ยัดลง KV ได้
+    // ส่วน kWh ของทั้งวันต้องใช้ข้อมูลทั้งวันจริง ๆ ไม่งั้นได้เลขที่ต่ำกว่าความจริง
+    // หลายเท่า แล้วบรรทัด "ซื้อไฟ" (ซึ่งมาจากตัวคิดค่าไฟที่เก็บครบ) จะมากกว่า
+    // บรรทัด "ใช้ไฟรวม" ซึ่งเป็นไปไม่ได้ทางฟิสิกส์ — เจอจริง 3 ส.ค. 69
+    const daySamples = store.all(thaiMidnight()).map((r) => ({ t: r.t, pv: r.pv, grid: r.grid, load: r.load }));
+    const msg = buildDailySummary(
+      { ...out.state, samples: daySamples.length ? daySamples : out.state.samples },
+      cfg,
+      Date.now(),
+      monthHeadroom(out.state.demand || emptyDemand(), cfg),
+    );
     if (msg) await relay(msg.telegram, { silent: true, emailSubject: msg.emailSubject, emailHtml: msg.emailHtml });
   }
 }
@@ -516,7 +528,8 @@ const server = http.createServer(async (req, res) => {
       const now = Date.now();
       const from = now - Number(b.fromMinAgo || 0) * 60000;
       const to = now - Number(b.toMinAgo || 0) * 60000;
-      const result = zones.record(String(b.zone || ''), from, to, String(b.note || ''), !!b.preRunning);
+      const result = zones.record(String(b.zone || ''), from, to, String(b.note || ''), !!b.preRunning,
+        b.baseKw === undefined || b.baseKw === null || b.baseKw === '' ? null : Number(b.baseKw));
       const n = applyShedList();
       applyNightIdle();
       return send(200, { ok: true, result, shedCount: n });

@@ -358,7 +358,13 @@ export function buildMessage(event, cfg, now = Date.now()) {
 /** สรุปประจำวัน ส่งตอนเย็น */
 export function buildDailySummary(state, cfg, now = Date.now(), headroom = null) {
   const s = state.samples || [];
-  const day = s.filter((x) => x.t >= now - 20 * 60 * 60 * 1000);
+  // ตั้งแต่เที่ยงคืนของวันไทย ไม่ใช่ย้อนหลัง 20 ชั่วโมงแบบเลื่อนไปเรื่อย ๆ
+  //
+  // แบบเลื่อนพังเมื่อสรุปถูกส่งดึก: ส่งตอนเที่ยงคืนจะตัดข้อมูลตั้งแต่ตี 4 ทิ้ง
+  // แล้วบอกว่า "โซลาร์ผลิต 0.7 kWh" ทั้งที่ผลิตได้ 126 kWh (เจอจริง 3 ส.ค. 69)
+  const t = new Date(now + 7 * 3600000);
+  const dayStart = Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate()) - 7 * 3600000;
+  const day = s.filter((x) => x.t >= dayStart);
   if (!day.length) return null;
 
   // อินทิเกรตตามเวลาจริงระหว่างจุด ไม่ใช่คูณ 5 นาทีต่อจุดแบบตายตัว
@@ -378,7 +384,12 @@ export function buildDailySummary(state, cfg, now = Date.now(), headroom = null)
   };
 
   // ถ้ามีตัวคิดค่าไฟอยู่แล้ว ใช้ยอดของมันเลย แม่นกว่าเพราะเก็บต่อเนื่องไม่ตกหล่น
-  const billDay = state.bill && state.bill.day ? state.bill.day : null;
+  //
+  // แต่ต้องเป็นยอดของ "วันเดียวกัน" กับที่กำลังสรุปเท่านั้น ตัวคิดค่าไฟรีเซ็ตยอด
+  // เมื่อข้ามวัน ถ้าเอายอดของวันใหม่มาใส่ในสรุปของวันเก่า จะได้เลขที่ดูสมเหตุสมผล
+  // แต่ผิดสนิท (เช่นบอกว่าซื้อไฟทั้งวัน 0.1 kWh) — ถ้าคนละวันให้ไปคิดจากข้อมูลดิบแทน
+  const rawBillDay = state.bill && state.bill.day ? state.bill.day : null;
+  const billDay = rawBillDay && rawBillDay.since >= dayStart ? rawBillDay : null;
   const gridKwh = billDay ? (billDay.onPeakKwh || 0) + (billDay.offPeakKwh || 0) : integrate('grid');
   const pvKwh = integrate('pv');
   const loadKwh = integrate('load');

@@ -402,8 +402,16 @@ export class Zones {
    * เส้นฐานที่บันทึกไว้ = ผลรวมโซนพื้นฐานที่วัดแล้ว (ไฟส่องสว่าง)
    * ใช้ตอนวัดของที่เปิดค้างอยู่ก่อนแล้ว
    */
-  savedBaselineKw() {
-    return sumBaselines(this.list(), this.latestAll());
+  /**
+   * เส้นฐานที่บันทึกไว้ = ผลรวมโซนพื้นฐานที่วัดแล้ว
+   *
+   * exceptSlug: ตัดโซนที่กำลังจะวัดออกเสมอ — ไม่งั้นเวลาวัดโซนพื้นฐานซ้ำ
+   * (เช่นรู้ทีหลังว่าค่าเดิมผิด) มันจะเอาค่าเก่าของตัวเองมาเป็นฐาน แล้วได้
+   * ผลลัพธ์ติดลบ ซึ่งไม่มีความหมายอะไรเลย
+   */
+  savedBaselineKw(exceptSlug = null) {
+    const defs = this.list().filter((z) => z.slug !== exceptSlug);
+    return sumBaselines(defs, this.latestAll());
   }
 
   /**
@@ -447,7 +455,7 @@ export class Zones {
     const cur = this.running();
     if (cur) throw new Error(`กำลังวัด "${this.def(cur.zone)?.name || cur.zone}" อยู่ ต้องจบอันนั้นก่อน`);
 
-    const baseKw = preRunning ? this.savedBaselineKw() : null;
+    const baseKw = preRunning ? this.savedBaselineKw(slug) : null;
     if (preRunning && baseKw === null) {
       throw new Error('ยังไม่มีเส้นฐานที่บันทึกไว้ — ต้องวัดไฟส่องสว่างก่อน ถึงจะวัดของที่เปิดค้างอยู่ได้');
     }
@@ -493,15 +501,25 @@ export class Zones {
    * มีเพราะคนเปิดเครื่องก่อนแล้วค่อยนึกได้ว่าต้องกดจับเวลา ถ้าไม่มีทางนี้
    * ก็ต้องไปปิดแล้วเปิดใหม่รอบหนึ่งเปล่า ๆ ทั้งที่ข้อมูลดิบเก็บไว้ครบอยู่แล้ว
    */
-  record(slug, from, to, note = '', preRunning = false) {
+  /**
+   * @param baseKwOverride ระบุเส้นฐานเองเป็น kW
+   *
+   * มีเพราะ "ผลรวมโซนพื้นฐานที่วัดแล้ว" ไม่ใช่ค่าที่ถูกเสมอ — โซนพื้นฐานบางตัว
+   * อาจไม่ได้เปิดอยู่ในช่วงที่วัด (เช่นไฟโกดังที่ปิดไปตั้งแต่เลิกงาน) การเอามารวม
+   * ทำให้ฐานสูงเกินจริง แล้วผลออกมาติดลบ ซึ่งไม่มีความหมายอะไรเลย
+   * คนที่อยู่หน้างานรู้ว่าตอนนั้นมีอะไรเปิดบ้าง จึงต้องเปิดทางให้บอกระบบได้
+   */
+  record(slug, from, to, note = '', preRunning = false, baseKwOverride = null) {
     const zone = this.def(slug);
     if (!zone) throw new Error(`ไม่รู้จักโซน "${slug}"`);
     if (!(to > from)) throw new Error('ช่วงเวลาไม่ถูกต้อง');
-    const baseKw = preRunning ? this.savedBaselineKw() : null;
+    const baseKw = baseKwOverride !== null && baseKwOverride !== undefined
+      ? Number(baseKwOverride)
+      : (preRunning ? this.savedBaselineKw(slug) : null);
     const r = this.db
       .prepare(`INSERT INTO zone_tests (zone, started_at, ended_at, status, note, base_mode, base_kw)
                 VALUES (?,?,?,'done',?,?,?)`)
-      .run(slug, Math.round(from), Math.round(to), note || null, preRunning ? 'fixed' : 'auto', baseKw);
+      .run(slug, Math.round(from), Math.round(to), note || null, baseKw !== null ? 'fixed' : 'auto', baseKw);
 
     const row = this.db.prepare('SELECT * FROM zone_tests WHERE id = ?').get(Number(r.lastInsertRowid));
     const result = computeTest(this.store, row, this.def(row.zone));
@@ -526,7 +544,7 @@ export class Zones {
   /** ผลทุกครั้งของโซนหนึ่ง ใหม่ก่อน */
   history(slug) {
     const rows = this.db
-      .prepare("SELECT * FROM zone_tests WHERE zone = ? AND status = 'done' ORDER BY started_at DESC")
+      .prepare("SELECT * FROM zone_tests WHERE zone = ? AND status = 'done' ORDER BY started_at DESC, id DESC")
       .all(slug);
     return rows.map((r) => this._resultOf(r));
   }
@@ -546,7 +564,7 @@ export class Zones {
       // ถ้าเอาครั้งล่าสุดดื้อ ๆ การกดวัดพลาดครั้งเดียว (ลืมเปิดเครื่อง กดจบเร็วไป)
       // จะลบค่าดีที่วัดมาอย่างดีทิ้งไปเลย ทั้งที่ยังอยู่ในฐานข้อมูลครบ
       const rows = this.db
-        .prepare("SELECT * FROM zone_tests WHERE zone = ? AND status = 'done' ORDER BY started_at DESC LIMIT 10")
+        .prepare("SELECT * FROM zone_tests WHERE zone = ? AND status = 'done' ORDER BY started_at DESC, id DESC LIMIT 10")
         .all(z.slug);
       let pick = null;
       for (const row of rows) {
