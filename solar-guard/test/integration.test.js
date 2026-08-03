@@ -312,10 +312,14 @@ await test('หน้าต่าง 15 นาทีจะจบเกินเ�
   const env = { ...PUSH_ENV, SOLAR_KV: fakeKV(), DEMAND_ACTION_KW: '17', WARN_IMPORT_KW: '16', CRIT_IMPORT_KW: '19' };
   installFakeFetch({});
 
-  // ดึงหนักช่วงต้นหน้าต่างจนค่าเฉลี่ยพุ่ง แล้วปล่อยให้ค่าปัจจุบันตกลงมาต่ำ
+  // ดึงหนัก 8 นาทีแรกของหน้าต่างจนค่าเฉลี่ยพุ่ง แล้วปล่อยให้ค่าปัจจุบันตกลงมาต่ำ
+  //
+  // ต้องยาวพอให้ "ค่าเฉลี่ยที่ผ่านมาแล้ว" ลากทั้งหน้าต่างให้เกินเกณฑ์เอง
+  // ต่อให้เวลาที่เหลือดึงไฟ 0 เลยก็ยังเกิน — ซึ่งคือสภาพจริงของเหตุการณ์ 3 ส.ค.
+  // (เฉลี่ยไปแล้ว 102 kW ใน 7 นาที เหลืออีก 8 นาที ยังไงก็จบเกินเพดาน)
   let t = START;
   Date.now = () => t;
-  for (const kw of [40, 40, 40]) { await postIngest(env, { pv: 1, grid: kw }); t += 60000; Date.now = () => t; }
+  for (let i = 0; i < 8; i++) { await postIngest(env, { pv: 1, grid: 40 }); t += 60000; Date.now = () => t; }
   await postIngest(env, { pv: 12, grid: 0.2 });
   const st = await (await worker.fetch(new Request('https://x/api/state'), env, { waitUntil() {} })).json();
   Date.now = realNow;

@@ -519,6 +519,7 @@ async function poll(env, cfg, injected = null) {
   const { state, events, cause, demand15, actions } = evaluate(prev, sample, cfg, now);
   state.demand = demandRes.demand;
   state.monthPeaks = mp;
+  state.lastSample = sample; // ค่าล่าสุดจริง ไม่ผ่านการบางประวัติ
   state.bill = bill;
   state.dayPvKwh = reading.dayPvKwh;
   state.cause = cause.text;
@@ -855,7 +856,15 @@ async function publicState(env, cfg) {
  * ไม่ใช่คิดคนละสูตรแล้วมาเถียงกันทีหลังว่าฝั่งไหนถูก
  */
 export function viewState(state, cfg) {
-  const last = state.samples?.[state.samples.length - 1] || null;
+  // ใช้ค่าที่อ่านได้ล่าสุดจริง ไม่ใช่จุดล่าสุดในประวัติ
+  //
+  // ประวัติถูกบางออกเหลือช่วงละ sampleGapSec (ค่าเริ่มต้น 2 นาที) เพื่อให้เก็บ
+  // ครบ 24 ชั่วโมงโดยไฟล์ไม่บวม แต่ตัวเลขบนหน้าจอต้องเป็นของ "เดี๋ยวนี้"
+  // เซิร์ฟเวอร์ในโรงงานอ่านทุก 5 วินาที ถ้าอ่านจากประวัติจะดูเหมือนค้างไป 2 นาที
+  // ทั้งที่ข้อมูลสดอยู่ — และ stale ก็จะเพี้ยนตามไปด้วย
+  const newest = state.lastSample || null;
+  const fromHistory = state.samples?.[state.samples.length - 1] || null;
+  const last = newest && (!fromHistory || newest.t >= fromHistory.t) ? newest : fromHistory;
   const stale = !last || minutesBetween(Date.now(), last.t) > STALE_MINUTES;
   const coveragePct = last && last.load > 0 ? Math.round(((last.load - Math.max(0, last.grid)) / last.load) * 100) : null;
   const demand = state.demand || emptyDemand();

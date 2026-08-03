@@ -100,6 +100,7 @@ async function processReading(reading, now = Date.now()) {
   const { state, events, cause, actions } = evaluate(prev, sample, cfg, now);
   state.demand = demandRes.demand;
   state.monthPeaks = mp;
+  state.lastSample = sample; // ค่าล่าสุดจริง ไม่ผ่านการบางประวัติ
   state.bill = bill;
   state.window = demandRes.window;
   state.headroom = headroom;
@@ -212,10 +213,33 @@ const server = http.createServer(async (req, res) => {
     res.end(typeof body === 'string' ? body : JSON.stringify(body));
   };
 
-  // ในวง LAN ของโรงงานไม่บังคับโทเคน แต่ถ้าตั้งไว้ก็ยังเช็คให้
+  // ---- ด่านโทเคน ----
+  //
+  // ใส่ ?k=... ครั้งเดียวแล้วจำไว้เป็นคุกกี้ 1 ปี
+  //
+  // จอติดผนังกับมือถือของพนักงานเปิดหน้านี้ทุกวัน การต้องพก URL ยาว ๆ ที่มีโทเคน
+  // ต่อท้ายทุกครั้งจบลงด้วยการที่มีคนส่งลิงก์เต็ม ๆ ต่อกันในแชท ซึ่งแย่กว่าคุกกี้
+  // httpOnly ที่ JavaScript อ่านไม่ได้และไม่โผล่ในแถบที่อยู่
   if (cfg.dashboardToken) {
-    const given = url.searchParams.get('k') || req.headers['x-token'] || '';
-    if (given !== cfg.dashboardToken) return send(401, 'ไม่มีสิทธิ์เข้าถึง', 'text/plain; charset=utf-8');
+    const cookies = String(req.headers.cookie || '');
+    const fromCookie = /(?:^|;\s*)sg_token=([^;]+)/.exec(cookies)?.[1];
+    const given = url.searchParams.get('k') || req.headers['x-token'] || (fromCookie && decodeURIComponent(fromCookie)) || '';
+
+    if (given !== cfg.dashboardToken) {
+      return send(401, 'ไม่มีสิทธิ์เข้าถึง — ต่อท้าย URL ด้วย ?k=รหัสของคุณ หนึ่งครั้ง', 'text/plain; charset=utf-8');
+    }
+
+    // เพิ่งผ่านด้วย ?k= -> ฝากคุกกี้ไว้ แล้วพาไปหน้าเดิมแบบไม่มีโทเคนใน URL
+    // จะได้ไม่ติดไปกับบุ๊กมาร์ก ประวัติเบราว์เซอร์ หรือภาพหน้าจอที่ส่งต่อกัน
+    if (url.searchParams.get('k') === cfg.dashboardToken) {
+      const clean = url.pathname + (url.search.replace(/(^\?|&)k=[^&]*/, '').replace(/^&/, '?') || '');
+      res.writeHead(302, {
+        'Set-Cookie': `sg_token=${encodeURIComponent(cfg.dashboardToken)}; Max-Age=31536000; Path=/; HttpOnly; SameSite=Lax`,
+        Location: clean || '/',
+        'Cache-Control': 'no-store',
+      });
+      return res.end();
+    }
   }
 
   try {
