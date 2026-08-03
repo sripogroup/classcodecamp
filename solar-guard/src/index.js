@@ -17,7 +17,7 @@ import { checkSchedule, emptyScheduleState } from './schedule.js';
 import { applyZone } from './drivers/index.js';
 import { fetchKiosk, flattenNumbers, guessFields, kioskApiUrl, readNowFromKiosk } from './kiosk.js';
 import { buildDailySummary, buildMessage } from './messages.js';
-import { setTelegramWebhook } from './notify/telegram.js';
+import { setTelegramWebhook, replyTelegram } from './notify/telegram.js';
 import { sendChat } from './notify/chat.js';
 import { sendEmail } from './notify/email.js';
 import { dashboardHtml } from './dashboard.js';
@@ -782,12 +782,10 @@ async function handleTelegramWebhook(request, env, cfg) {
     const pending = Object.entries(schedule.tasks).filter(([, t]) => !t.done && !t.gaveUp);
     for (const [id, t] of pending) schedule.tasks[id] = { ...t, done: true, doneAt: now, doneBy: name };
     await writeState(env, { ...state, schedule });
-    await sendChat(
-      cfg,
+    await announce(
       pending.length
         ? `✅ รับทราบว่า${pending.map(([id]) => escapeTg((cfg.dailyTasks || []).find((t) => t.id === id)?.name || id)).join(', ')} เรียบร้อยแล้ว (โดย ${escapeTg(name)})\n\n<i>ระบบจะหยุดย้ำ แต่ยังเฝ้าเรื่องเพดาน ${cfg.demandLimitKw} kW ให้ตามปกติ</i>`
         : `ตอนนี้ไม่มีงานที่ค้างอยู่ครับ`,
-      { silent: true },
     );
     return json({ ok: true });
   }
@@ -804,12 +802,10 @@ async function handleTelegramWebhook(request, env, cfg) {
     // พักเฉพาะ "การสั่งปิดอัตโนมัติ" 30 นาที — ไม่ใช่ปิดปากการเตือนเพดาน
     // (ถ้าไปตั้ง mutedUntil ตรงนี้ จะกลายเป็นว่ากด /restore แล้วระบบเงียบเรื่อง 30 kW ไปด้วย ซึ่งอันตราย)
     await writeState(env, { ...state, shed, shedPauseUntil: now + 30 * 60000 });
-    await sendChat(
-      cfg,
+    await announce(
       offZones.length
         ? `✅ เปิดกลับ ${offZones.length} โซนแล้ว (โดย ${escapeTg(name)})\n${offZones.map((z) => `• ${escapeTg(z.name)}`).join('\n')}\n\n<i>ระบบจะไม่สั่งปิดอัตโนมัติอีก 30 นาที</i>`
         : `ตอนนี้ไม่มีโซนไหนถูกสั่งปิดอยู่ครับ`,
-      { silent: true },
     );
     return json({ ok: true });
   }
@@ -843,7 +839,7 @@ async function handleTelegramWebhook(request, env, cfg) {
           .filter(Boolean)
           .join('\n')
       : `${icon}\nยังไม่มีข้อมูล`;
-    await sendChat(cfg, body, { silent: true });
+    await reply(body, { silent: true });
     return json({ ok: true });
   }
 
@@ -857,29 +853,22 @@ async function handleTelegramWebhook(request, env, cfg) {
    * ซึ่งเป็นคนละห้องกับที่ถาม แล้วก็จะได้เลขของกลุ่มแทน = ผิดทั้งคู่
    */
   if (cmd === '/id') {
-    const chatId = update?.message?.chat?.id;
-    const kind = update?.message?.chat?.type === 'private' ? 'ห้องส่วนตัว' : 'กลุ่ม';
-    if (chatId && cfg.telegramToken) {
-      await fetch(`https://api.telegram.org/bot${cfg.telegramToken}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: `🪪 ${kind}นี้คือ\n\n<code>${chatId}</code>\n\n`
-            + 'ถ้านี่คือห้องส่วนตัวของหัวหน้า ให้เอาเลขนี้ไปตั้งด้วยคำสั่ง\n'
-            + '<code>npx wrangler secret put TELEGRAM_BOSS_CHAT_ID</code>\n\n'
-            + '<i>ตั้งแล้วเรื่องที่เกิดนอกเวลางานจะส่งมาที่ห้องนี้ห้องเดียว ไม่กวนกลุ่มพนักงาน</i>',
-          parse_mode: 'HTML',
-          disable_notification: true,
-        }),
-      }).catch(() => {});
-    }
+    const kind = isGroup ? 'กลุ่ม' : 'ห้องส่วนตัว';
+    const already = String(chatId) === String(cfg.telegramBossChatId);
+    await reply(
+      `🪪 ${kind}นี้คือ\n\n<code>${chatId}</code>\n\n`
+        + (already
+          ? '✅ <b>ห้องนี้ตั้งเป็นห้องของหัวหน้าไว้แล้ว</b>\n'
+            + `<i>เรื่องที่เกิดหลัง ${cfg.staffHourEnd}:00 น. ถึง ${cfg.staffHourStart}:00 น. จะส่งมาที่นี่ห้องเดียว ไม่กวนกลุ่มพนักงาน</i>`
+          : 'ถ้านี่คือห้องส่วนตัวของหัวหน้า ให้เอาเลขนี้ไปตั้งด้วยคำสั่ง\n'
+            + '<code>npx wrangler secret put TELEGRAM_BOSS_CHAT_ID</code>'),
+      { silent: true },
+    );
     return json({ ok: true });
   }
 
   if (cmd === '/help' || cmd === '/start') {
-    await sendChat(
-      cfg,
+    await reply(
       `🤖 <b>คำสั่งที่ใช้ได้</b>
 /status — ดูสถานะตอนนี้ + สูงสุดของเดือน
 /done — แจ้งว่าปิดแอร์ตามรอบแล้ว
