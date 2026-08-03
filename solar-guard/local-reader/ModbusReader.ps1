@@ -70,15 +70,26 @@ param(
     # once a second; 5 s is responsive without hammering the single Modbus slot.
     [int]$IntervalSec = 5,
 
-    # How often to send upstream. Reading fast and sending slower keeps the
-    # request count sane (30 s = ~2,900 requests/day) while still catching
-    # short spikes, because the value sent is built from every read in between.
-    [int]$PushEverySec = 30,
+    # How often to send upstream.
+    #
+    # This is capped by Cloudflare KV, not by anything electrical: the free
+    # plan allows 1,000 writes per DAY and every push writes state once.
+    # 30 s meant 2,880 writes and the quota was gone by mid-afternoon - the
+    # worker then returned 500 on every push and the dashboard went blank.
+    #
+    #   150 s -> 576 writes/day, leaving room for urgent pushes and the cron.
+    #
+    # On the paid plan ($5/month, 1M writes included) this can go back to 30 s.
+    [int]$PushEverySec = 150,
 
     # Send immediately, without waiting for the timer, once grid import
     # reaches this. Being late on a real spike is the one failure this whole
-    # system exists to prevent.
-    [double]$PushNowKw = 15,
+    # system exists to prevent, so this is worth spending quota on.
+    [double]$PushNowKw = 13,
+
+    # ...but not more often than this, or a sustained busy afternoon would
+    # burn the whole daily quota in about eight minutes.
+    [int]$UrgentMinGapSec = 60,
 
     # Anything above this is a fault, not power. A 36 kW inverter against a
     # 20 kW ceiling can never produce a three-digit reading.
@@ -385,7 +396,7 @@ while ($true) {
     $urgent = $reading.Grid -ge $PushNowKw
     $due = $sincePush -ge $PushEverySec
 
-    if (-not $NoPush -and ($due -or ($urgent -and $sincePush -ge 5))) {
+    if (-not $NoPush -and ($due -or ($urgent -and $sincePush -ge $UrgentMinGapSec))) {
         # Normal cadence sends the MEAN of everything read since the last push,
         # which is what the utility's 15-minute average is built from.
         # An urgent send uses the instantaneous value instead, because that is
@@ -403,9 +414,19 @@ while ($true) {
             $res = Push-Sample -Pv $pv -Grid $grid -Load $load
             $lastPush = Get-Date
             [void]$acc.Clear()
+
+            # The worker answers 200 even when it refuses the sample, with
+            # ok=false and a reason. Reporting that as "sent" hid a real
+            # outage once already - if it did not land, say so.
+            $ok = -not ($res -and $res.PSObject.Properties.Name -contains "ok") -or $res.ok
             $lvl = if ($res -and $res.PSObject.Properties.Name -contains "level") { $res.level } else { "sent" }
-            Write-Log ("PV {0,7:F3} kW | Grid {1,7:F3} kW | Load {2,7:F3} kW | {3}{4}" -f `
-                $pv, $grid, $load, $lvl, $(if ($urgent) { " [URGENT]" } else { "" }))
+            if ($ok) {
+                Write-Log ("PV {0,7:F3} kW | Grid {1,7:F3} kW | Load {2,7:F3} kW | {3}{4}" -f `
+                    $pv, $grid, $load, $lvl, $(if ($urgent) { " [URGENT]" } else { "" }))
+            } else {
+                $why = if ($res.PSObject.Properties.Name -contains "error") { $res.error } else { "worker refused the sample" }
+                Write-Log ("Worker REFUSED the reading: {0}" -f $why) "ERROR"
+            }
         } catch {
             Write-Log ("Push failed: {0}" -f $_.Exception.Message) "ERROR"
             # Keep the accumulator so the next successful push still represents

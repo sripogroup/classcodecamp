@@ -25,7 +25,9 @@ param(
     [string]$TaskName = "Solar Guard Modbus Reader",
     [string]$OldTaskName = "Solar Guard FusionSolar Reader",
     [int]$IntervalSec = 5,
-    [int]$PushEverySec = 30,
+    # 150 s keeps the day under Cloudflare KV's free-plan write quota of 1,000.
+    # See the note in ModbusReader.ps1 before lowering this.
+    [int]$PushEverySec = 150,
     [string]$LogFile = "$env:USERPROFILE\solar-guard-modbus.log",
     [string]$CsvFile = "$env:USERPROFILE\solar-guard-readings-modbus.csv",
     [switch]$Remove,

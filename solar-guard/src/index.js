@@ -542,8 +542,23 @@ async function poll(env, cfg, injected = null) {
     });
   }
 
-  // ---- 5) ส่งข้อความ ----
-  const sent = [];
+  // ---- 5) บันทึกสถานะก่อน แล้วค่อยส่งข้อความ ----
+  //
+  // ลำดับนี้สำคัญมาก และเคยกลับด้านอยู่จนเกิดปัญหาจริงเมื่อ 3 ส.ค. 2569
+  //
+  // ตัวกันสแปมทั้งหมด (lastSentAt / lastSentLevel / lastNightAlertAt / streak)
+  // อยู่ใน state ถ้าส่งข้อความก่อนแล้วเซฟไม่สำเร็จ ข้อความออกไปแล้วแต่ระบบจำไม่ได้
+  // ว่าเคยส่ง รอบถัดไปจึงส่งใบเดิมซ้ำอีก แล้วซ้ำอีกทุกรอบไม่มีที่สิ้นสุด
+  // วันนั้นโควตาเขียน KV หมด writeState เลยพังทุกครั้ง พนักงานได้ข้อความรัว ๆ
+  //
+  // เซฟไม่ได้ = ไม่ส่ง ยอมเงียบดีกว่าสแปมจนคนปิดการแจ้งเตือนทิ้งทั้งหมด
+  let sent = [];
+  try {
+    await writeState(env, state);
+  } catch (err) {
+    return { ok: false, error: `บันทึกสถานะไม่สำเร็จ จึงไม่ส่งข้อความ (กันเตือนซ้ำไม่รู้จบ): ${err.message}`, sample };
+  }
+
   for (const ev of allEvents) {
     const msg = buildMessage(ev, cfg, now);
     if (!msg) continue;
@@ -553,8 +568,6 @@ async function poll(env, cfg, injected = null) {
     if (msg.priority === 'high' && msg.emailSubject) mail = await sendEmail(cfg, msg.emailSubject, msg.emailHtml);
     sent.push({ type: ev.type, chat: tg.ok, email: !!mail.ok });
   }
-
-  await writeState(env, state);
   return {
     ok: true,
     sample,
@@ -756,10 +769,28 @@ async function publicState(env, cfg) {
   // เกณฑ์ที่ใช้จริง ณ ตอนที่เรียก ไม่ใช่ตอนที่เก็บ state ไว้ — หน้าจอต้องโชว์ของปัจจุบัน
   const th = activeThresholds(cfg, Date.now());
 
+  // ฉุกเฉินจริง = ไฟหลวงหนักอยู่ตอนนี้ หรือ หน้าต่าง 15 นาทีนี้กำลังจะจบเกินเส้นที่ต้องลงมือ
+  // สองเงื่อนไขนี้แยกกันโดยสิ้นเชิง อันแรกดูค่าปัจจุบัน อันหลังดูแนวโน้มของทั้งหน้าต่าง
+  const emergency = !stale && (state.level === 'red' || (!!win && win.projectedKw >= cfg.demandActionKw));
+
   return {
     level: stale ? 'unknown' : state.level,
     stale,
-    siren: !stale && state.level === 'red', // ให้ ESP32 อ่านค่านี้ไปสั่งไฟหมุน
+    // ---- สัญญาณฉุกเฉิน: ไฟหมุน + ไซเรนบนหน้าจอ อ่านตัวนี้ตัวเดียว ----
+    //
+    // เดิมผูกไว้กับ state.level อย่างเดียว ซึ่งคิดจาก "ไฟหลวง ณ ขณะนี้" เท่านั้น
+    // 3 ส.ค. 2569 พบว่าหน้าต่าง 15 นาทีจะจบที่ 47 kW บนเพดาน 20 kW (เหลือระยะ -27)
+    // แต่ค่า ณ ขณะนั้นอยู่แค่ 0.2 kW จึงเป็นสีเขียว ไซเรนเลยไม่ดังสักแอะ
+    // ทั้งที่เป็นสถานการณ์ที่ระบบทั้งระบบสร้างมาเพื่อกัน
+    //
+    // จึงต้องดังเมื่อ "จะเกิน" ด้วย ไม่ใช่เฉพาะตอน "เกินอยู่ตอนนี้"
+    emergency,
+    emergencyReason: emergency
+      ? state.level === 'red'
+        ? 'ไฟหลวงกำลังเข้าหนักตอนนี้'
+        : `หน้าต่าง 15 นาทีนี้จะจบที่ ${r(win.projectedKw)} kW`
+      : null,
+    siren: emergency, // ให้ ESP32 อ่านค่านี้ไปสั่งไฟหมุน
     gridImportKw: last ? last.grid : null,
     pvKw: last ? last.pv : null,
     loadKw: last ? last.load : null,

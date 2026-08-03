@@ -125,6 +125,7 @@ export function dashboardHtml(cfg, token) {
     <div>
       <div class="headline" id="headline">กำลังโหลดข้อมูล…</div>
       <div class="sub" id="subline">เชื่อมต่อกับ FusionSolar</div>
+      <div id="emgLine" style="display:none;margin-top:8px;font-size:20px;font-weight:800;color:#fecaca"></div>
     </div>
   </div>
 
@@ -644,7 +645,14 @@ function render(st, samples){
     sc.style.display='block';
   } else sc.style.display='none';
 
-  if(level==='red') startSiren(); else stopSiren();
+  /* ไซเรนตามสัญญาณฉุกเฉินของ worker ไม่ใช่ตามสีของสถานะ
+     สีเขียวไม่ได้แปลว่าปลอดภัย — หน้าต่าง 15 นาทีอาจกำลังจะจบเกินเพดานอยู่ก็ได้
+     ทั้งที่ค่า ณ วินาทีนี้ยังต่ำ (?? ไว้เผื่อ worker รุ่นเก่าที่ยังไม่ส่ง emergency มา) */
+  const emg = st.emergency ?? (level === 'red');
+  if(emg) startSiren(); else stopSiren();
+  const eb2 = document.getElementById('emgLine');
+  eb2.style.display = emg && st.emergencyReason ? 'block' : 'none';
+  if (emg && st.emergencyReason) eb2.textContent = '🚨 ' + st.emergencyReason;
   if(level!=='red' && lastLevel==='red') beep(660,0.25);
   lastLevel = level;
   drawChart(samples);

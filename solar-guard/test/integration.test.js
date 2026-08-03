@@ -306,6 +306,37 @@ await test('ค่าที่เป็นไปไม่ได้ทางก�
   assert.ok((st.monthPeaks?.gridKw || 0) < 100, `สูงสุดของเดือนต้องไม่ติดค่าขยะ ได้ ${st.monthPeaks?.gridKw}`);
 });
 
+await test('หน้าต่าง 15 นาทีจะจบเกินเพดาน -> ต้องสั่งไซเรน แม้ค่า ณ ขณะนี้จะยังเขียว', async () => {
+  // เกิดขึ้นจริง 3 ส.ค. 2569: หน้าต่างจะจบที่ 47 kW บนเพดาน 20 kW
+  // แต่ค่า ณ วินาทีนั้นอยู่แค่ 0.2 kW จึงเป็นสีเขียว ไซเรนเลยเงียบสนิท
+  const env = { ...PUSH_ENV, SOLAR_KV: fakeKV(), DEMAND_ACTION_KW: '17', WARN_IMPORT_KW: '16', CRIT_IMPORT_KW: '19' };
+  installFakeFetch({});
+
+  // ดึงหนักช่วงต้นหน้าต่างจนค่าเฉลี่ยพุ่ง แล้วปล่อยให้ค่าปัจจุบันตกลงมาต่ำ
+  let t = START;
+  Date.now = () => t;
+  for (const kw of [40, 40, 40]) { await postIngest(env, { pv: 1, grid: kw }); t += 60000; Date.now = () => t; }
+  await postIngest(env, { pv: 12, grid: 0.2 });
+  const st = await (await worker.fetch(new Request('https://x/api/state'), env, { waitUntil() {} })).json();
+  Date.now = realNow;
+
+  assert.ok(st.demand.projectedKw >= 17, `หน้าต่างต้องคาดว่าจะจบสูง ได้ ${st.demand.projectedKw}`);
+  assert.equal(st.emergency, true, 'ต้องยกธงฉุกเฉิน แม้สถานะจะไม่แดง');
+  assert.equal(st.siren, true, 'ไฟหมุน/ไซเรนต้องทำงาน');
+  assert.ok(st.emergencyReason, 'ต้องบอกเหตุผลให้คนอ่านรู้เรื่อง');
+});
+
+await test('สถานการณ์ปกติ -> ต้องไม่ยกธงฉุกเฉิน (กันไซเรนหอน)', async () => {
+  const env = { ...PUSH_ENV, SOLAR_KV: fakeKV(), DEMAND_ACTION_KW: '17' };
+  installFakeFetch({});
+  Date.now = () => START;
+  await postIngest(env, { pv: 12, grid: 3 });
+  const st = await (await worker.fetch(new Request('https://x/api/state'), env, { waitUntil() {} })).json();
+  Date.now = realNow;
+  assert.equal(st.emergency, false, 'ไฟหลวง 3 kW ต้องไม่ทำให้ไซเรนดัง');
+  assert.equal(st.siren, false);
+});
+
 await test('ไม่มีรหัสหรือรหัสผิด -> ปฏิเสธ', async () => {
   const env = { ...PUSH_ENV, SOLAR_KV: fakeKV() };
   installFakeFetch({});
