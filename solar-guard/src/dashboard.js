@@ -301,6 +301,9 @@ export function dashboardHtml(cfg, token) {
 <script>
 const TOKEN = ${JSON.stringify(q)};
 const WATCH_HOUR = ${Number(cfg.eveningWatchHour) || 15};
+/* ช่วงเวลาที่กราฟแสดง — ตัดกลางดึกที่ร้านปิดแล้วออกไป */
+const CHART_FROM = ${Number(cfg.chartStartHour) || 5.5};
+const CHART_TO = ${Number(cfg.chartEndHour) || 21};
 let soundOn = localStorage.getItem('solarSound') === '1';
 let audioCtx = null, sirenTimer = null, lastLevel = 'green';
 
@@ -716,7 +719,16 @@ function drawChart(samples){
   const padL = 40*dpr, padR = 8*dpr, padT = 8*dpr, padB = 24*dpr;
   const pw = w - padL - padR, ph = h - padT - padB;
 
-  const t0 = samples[0].t, t1 = samples[samples.length-1].t;
+  /* แกนเวลาตรึงไว้ที่ช่วงเดิมของทุกวัน ไม่ใช่ยืดตามข้อมูลที่มี
+     ทำให้ดูวันนี้เทียบวันก่อนได้ ตำแหน่งเดียวกันคือเวลาเดียวกันเสมอ
+     และช่วงที่ข้อมูลขาดจะเห็นเป็นช่องว่างตรงตำแหน่งจริง ไม่ถูกบีบหายไป
+
+     ตัดกลางดึกทิ้ง (ค่าเริ่มต้น 05:30-21:00) เพราะร้านปิดแล้ว เหลือแต่เส้นแบน
+     กินพื้นที่ครึ่งจอโดยไม่ได้บอกอะไร */
+  const dayStart = (t) => { const d = new Date(t + 7*3600000); d.setUTCHours(0,0,0,0); return d.getTime() - 7*3600000; };
+  const d0 = dayStart(samples[0].t);
+  const t0 = d0 + CHART_FROM*3600000;
+  const t1 = d0 + CHART_TO*3600000;
   const span = Math.max(1, t1 - t0);
   const max = Math.max(10, ...samples.map(s=>Math.max(s.pv||0, s.load||0, s.grid||0))) * 1.15;
 
@@ -726,8 +738,7 @@ function drawChart(samples){
   const y = v => padT + (1 - Math.max(0,v)/max)*ph;
 
   /* แถบเฝ้าระวังเข้มช่วงเย็น (15:00 เป็นต้นไป) ระบายพื้นหลังให้เห็นว่าอันตรายช่วงไหน */
-  const dayStart = t => { const d = new Date(t + 7*3600000); d.setUTCHours(0,0,0,0); return d.getTime() - 7*3600000; };
-  for(let d = dayStart(t0); d <= t1; d += 86400000){
+  for(let d = t0; d <= t1; d += 86400000){
     const a = d + WATCH_HOUR*3600000, b = d + 22*3600000;
     if(b < t0 || a > t1) continue;
     const xa = x(Math.max(a,t0)), xb = x(Math.min(b,t1));
@@ -750,7 +761,8 @@ function drawChart(samples){
 
   /* เส้นแนวตั้ง + เวลา — เลือกระยะห่างให้ป้ายไม่ทับกัน */
   const hours = span/3600000;
-  const step = hours > 14 ? 4 : hours > 7 ? 2 : 1;
+  /* 15-16 ชั่วโมงยังอ่านทุก 2 ชั่วโมงได้สบาย ไม่ต้องกระโดดเป็น 4 */
+  const step = hours > 20 ? 4 : hours > 7 ? 2 : 1;
   ctx.textAlign = 'center'; ctx.textBaseline = 'top';
   const first = Math.ceil((t0 + 7*3600000)/(step*3600000))*(step*3600000) - 7*3600000;
   for(let t = first; t <= t1; t += step*3600000){

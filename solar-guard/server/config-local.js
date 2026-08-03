@@ -89,6 +89,13 @@ export function loadLocalConfig(overrides = {}) {
     heartbeatSec: num(env.HEARTBEAT_SEC, 600),
     workerUrl: env.WORKER_URL || '',
     ingestToken: env.INGEST_TOKEN || '',
+
+    // เติมรูข้อมูลจากพอร์ทัลอัตโนมัติตอนเริ่มทำงาน
+    // เครื่องนี้ปิดตัวเองทุกคืนตี 3 จึงมีรูวันละ 4-5 ชั่วโมงเป็นปกติ
+    gapfill: (env.GAPFILL || 'true') !== 'false',
+    gapfillMinGapMin: num(env.GAPFILL_MIN_GAP_MIN, 20),
+    gapfillTimeoutSec: num(env.GAPFILL_TIMEOUT_SEC, 240),
+    readerDir: env.READER_DIR || join(ROOT, 'local-reader'),
   };
   return cfg;
 }

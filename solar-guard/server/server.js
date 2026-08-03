@@ -32,6 +32,8 @@ import { loadLocalConfig } from './config-local.js';
 import { Store } from './store.js';
 import { Inverter } from './modbus.js';
 import { makeRelay } from './notify-relay.js';
+import { fillGaps, thaiMidnight } from './gapfill.js';
+import { rebuildFromStore, applyRebuild } from './rebuild.js';
 
 const args = new Set(process.argv.slice(2));
 const NO_ALERTS = args.has('--no-alerts');
@@ -336,8 +338,11 @@ const server = http.createServer(async (req, res) => {
       if (Number.isFinite(hours) && hours > 0) {
         from = Date.now() - hours * 3600000;
       } else {
-        from = thaiMidnight(dayParam);
-        to = from + 86400000;
+        // เฉพาะช่วงที่กราฟแสดงจริง (ค่าเริ่มต้น 05:30-21:00) ไม่ต้องส่งกลางดึกมา
+        // ให้เปลืองแบนด์วิดท์และเวลาวาด ในเมื่อกราฟตัดทิ้งอยู่แล้ว
+        const mid = thaiMidnight(dayParam);
+        from = mid + cfg.chartStartHour * 3600000;
+        to = mid + cfg.chartEndHour * 3600000;
       }
 
       // ต้องห่อด้วย { samples: [...] } ให้ตรงกับที่ฝั่งคลาวด์ส่ง
@@ -377,6 +382,35 @@ try {
       `มิเตอร์${id.meterOnline ? 'ออนไลน์' : 'ไม่ตอบ - ต้องตรวจ'}`);
 } catch (err) {
   log(`ต่ออินเวอร์เตอร์ไม่ได้ตอนเริ่ม: ${err.message} — จะลองใหม่เรื่อย ๆ`, 'WARN');
+}
+
+// เติมรูข้อมูลของวันนี้ก่อนเริ่มเดินเครื่อง
+//
+// ต้องทำทุกครั้งที่เปิด ไม่ใช่ครั้งเดียว เพราะเครื่องปิดตัวเองทุกคืนตี 3
+// ถ้าไม่เติม กราฟจะขาดวันละ 4-5 ชั่วโมง และค่าไฟจะต่ำกว่าจริงทุกวัน
+//
+// ทำเป็นเบื้องหลัง ไม่ให้บล็อกการอ่าน Modbus — การดึงจากพอร์ทัลใช้เวลาเป็นนาที
+// และถ้าพอร์ทัลล่ม ระบบต้องยังเฝ้าไฟให้ได้ตามปกติ
+if (!ONCE && cfg.local.gapfill) {
+  (async () => {
+    try {
+      const added = await fillGaps(store, cfg, log, {
+        sinceMs: thaiMidnight(),
+        minGapMin: cfg.local.gapfillMinGapMin,
+      });
+      if (added > 0) {
+        const built = rebuildFromStore(store, cfg);
+        if (built) {
+          applyRebuild(store, built);
+          log(`คิดสถิติของเดือนใหม่จาก ${built.rows} จุด: ` +
+              `พีค ${built.headroom.peakKw.toFixed(1)} kW | ` +
+              `ค่าไฟ ${built.billMonth.totalBaht.toLocaleString('th-TH')} บาท`);
+        }
+      }
+    } catch (err) {
+      log(`เติมรูข้อมูลไม่สำเร็จ: ${err.message}`, 'WARN');
+    }
+  })();
 }
 
 if (ONCE) {
