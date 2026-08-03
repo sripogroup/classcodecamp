@@ -42,7 +42,7 @@ export const DEFAULT_ZONES = [
   // ไฟส่องสว่างแยกสองโซนเพราะกลางคืนโกดังปิดไฟหมด แต่ออฟฟิศยังเปิด
   // ถ้ารวมเป็นก้อนเดียว เส้นฐานกลางวันกับกลางคืนจะไม่เท่ากันโดยไม่มีใครรู้ว่าทำไม
   { slug: 'lighting',     name: 'ไฟส่องสว่างออฟฟิศ (ห้องทำงานเต้ย+มิ้ง+แอดมิน)', minutes: 10,
-    shedOrder: null, protectedZone: true, baseline: true,
+    shedOrder: null, protectedZone: true, baseline: true, nightOk: true,
     note: 'เส้นฐานกลางคืน — เปิดค้างตลอด ปิดไม่ได้' },
   { slug: 'lighting-wh',  name: 'ไฟส่องสว่างโกดัง', minutes: 10,
     shedOrder: null, protectedZone: true, baseline: true,
@@ -126,17 +126,21 @@ export function initZoneTables(db) {
   const zcols = db.prepare('PRAGMA table_info(zone_defs)').all().map((c) => c.name);
   if (zcols.length && !zcols.includes('night_ok')) {
     db.exec('ALTER TABLE zone_defs ADD COLUMN night_ok INTEGER NOT NULL DEFAULT 0');
+    // ตั้งค่าเริ่มต้นให้โซนที่รู้อยู่แล้วว่าเปิดกลางคืน (ฐานข้อมูลที่สร้างไว้ก่อน
+    // จะมีคอลัมน์นี้ ไม่ได้ผ่าน seed จึงต้องเซ็ตย้อนหลังให้)
+    const upd = db.prepare('UPDATE zone_defs SET night_ok = 1 WHERE slug = ?');
+    for (const z of DEFAULT_ZONES) if (z.nightOk) upd.run(z.slug);
   }
 
   const n = db.prepare('SELECT count(*) c FROM zone_defs').get().c;
   if (n === 0) {
     const ins = db.prepare(`INSERT INTO zone_defs
-      (slug,name,minutes,shed_order,protected,is_baseline,owner,note,sort)
-      VALUES (?,?,?,?,?,?,?,?,?)`);
+      (slug,name,minutes,shed_order,protected,is_baseline,owner,note,sort,night_ok)
+      VALUES (?,?,?,?,?,?,?,?,?,?)`);
     DEFAULT_ZONES.forEach((z, i) => ins.run(
       z.slug, z.name, z.minutes, z.shedOrder ?? null,
       z.protectedZone ? 1 : 0, z.baseline ? 1 : 0,
-      z.owner || null, z.note || null, i,
+      z.owner || null, z.note || null, i, z.nightOk ? 1 : 0,
     ));
   }
 }
@@ -416,16 +420,22 @@ export class Zones {
   nightIdleKw(marginKw = 1.5) {
     const latest = this.latestAll();
     const defs = this.list();
-    const base = sumBaselines(defs, latest);
-    if (base === null) return null;
 
-    const nightZones = defs.filter((z) => z.nightOk && !z.baseline && latest[z.slug]?.usable);
+    // นับเฉพาะของที่เปิดกลางคืนจริง ๆ
+    //
+    // เส้นฐานกลางคืนไม่เท่ากลางวัน: ไฟส่องสว่างโกดังปิดตอนเลิกงาน เหลือแต่ออฟฟิศ
+    // ถ้าเอาเส้นฐานกลางวันมาใช้ เกณฑ์จะสูงเกินไปจนลืมปิดไฟโกดังทั้งคืนก็ไม่มีใครรู้
+    const nightZones = defs.filter((z) => z.nightOk && latest[z.slug]?.usable);
+    if (!nightZones.length) return null;
+
     const nightKw = nightZones.reduce((s, z) => s + (latest[z.slug].steadyKw || 0), 0);
+    const baseZones = nightZones.filter((z) => z.baseline);
+    const baseKw = baseZones.reduce((s, z) => s + (latest[z.slug].steadyKw || 0), 0);
 
     return {
-      kw: round1(base + nightKw + marginKw),
-      baselineKw: round1(base),
-      nightAllowedKw: round1(nightKw),
+      kw: round1(nightKw + marginKw),
+      baselineKw: round1(baseKw),
+      nightAllowedKw: round1(nightKw - baseKw),
       marginKw,
       parts: nightZones.map((z) => ({ name: z.name, kw: round1(latest[z.slug].steadyKw) })),
     };

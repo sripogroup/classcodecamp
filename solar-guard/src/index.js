@@ -230,8 +230,20 @@ export default {
           || !prev?.at
           || (Date.now() - prev.at) >= 15 * 60000;
 
-        if (changed) await writeState(env, state);
-        return json({ ok: true, at: state.heartbeat.at, saved: changed });
+        // เขียนไม่ได้ไม่ใช่ความผิดของเครื่องในโรงงาน — ตอบ ok ไปตามปกติ
+        //
+        // โควตาเขียนแพ็กฟรีหมดได้จริง (1,000 ครั้ง/วัน รีเซ็ตเที่ยงคืน UTC = 07:00 น.
+        // บ้านเรา) ถ้าตอบ 500 เครื่องในโรงงานจะขึ้น WARN รัวทุก 10 นาทีเหมือนตัวเอง
+        // ทำอะไรผิด ทั้งที่มันส่งมาถูกต้องทุกอย่าง — บอกไปตรง ๆ ว่าเซฟไม่ได้เพราะอะไร
+        // แล้วให้มันตัดสินใจเองว่าจะบอกคนไหม
+        let saved = false;
+        let saveError = null;
+        if (changed) {
+          try { await writeState(env, state); saved = true; } catch (err) {
+            saveError = String(err?.message || err);
+          }
+        }
+        return json({ ok: true, at: state.heartbeat.at, saved, saveError });
       }
 
       // ส่งข้อความแทนเซิร์ฟเวอร์ในโรงงาน

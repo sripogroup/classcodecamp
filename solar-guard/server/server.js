@@ -227,8 +227,28 @@ async function heartbeat(view) {
         nightIdleKw: cfg.nightIdleKw,
       }),
     });
+    const out = await res.json().catch(() => ({}));
+
+    // ส่งถึงแล้วแต่คลาวด์เซฟไม่ได้ (โควตาเขียนรายวันหมด)
+    // ไม่ใช่ความผิดของเรา แต่ต้องรู้ เพราะ /status ในแชทจะค้างที่ค่าเก่า
+    if (res.ok && out.saved === false && out.saveError) {
+      heartbeatFails++;
+      log(`คลาวด์รับแล้วแต่บันทึกไม่ได้: ${out.saveError}`, 'WARN');
+      if (heartbeatFails === 3 && !NO_ALERTS) {
+        await relay(
+          `⚠️ <b>คลาวด์บันทึกสถานะไม่ได้</b>\n${cfg.siteName} • ${hhmm()} น.\n`
+          + `เหตุผล: ${out.saveError}\n\n`
+          + 'เครื่องในโรงงาน<b>ยังเฝ้าไฟให้ครบทุกอย่าง</b> และยังส่งข้อความเตือนได้ตามปกติ\n'
+          + 'ที่ใช้ไม่ได้ชั่วคราวคือ /status ในแชท (จะให้ตัวเลขเก่า) — ดูตัวเลขสดที่หน้าจอในโรงงานแทน\n\n'
+          + '<i>ถ้าเป็นโควตารายวันของ Cloudflare จะหายเองตอน 07:00 น.</i>',
+          { toBoss: true, silent: true },
+        );
+      }
+      return;
+    }
+
     if (!res.ok) {
-      const detail = await res.json().catch(() => ({}));
+      const detail = out;
       heartbeatFails++;
       log(`ส่งสัญญาณยังอยู่ดีไม่สำเร็จ: HTTP ${res.status} ${detail.error || ''}`, 'WARN');
 

@@ -138,6 +138,9 @@ export function zonesHtml(cfg) {
     <div class="muted" id="shedNote" style="margin-top:12px"></div>
   </div>
 
+  <h2>เกณฑ์เตือน "กลางคืนแต่ยังใช้ไฟอยู่"</h2>
+  <div class="card"><div class="muted" id="nightNote"></div></div>
+
   <h2>เพิ่ม / แก้โซน</h2>
   <div class="card">
     <div class="muted" style="margin-bottom:12px" id="formHint">
