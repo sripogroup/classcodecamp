@@ -206,6 +206,51 @@ async function tick() {
 
 /* ----------------------------------------------------------------- หน้าเว็บ */
 
+/**
+ * หน้าเข้าสู่ระบบ — เหมือนแอพอื่นในบริษัท
+ *
+ * ตั้งใจให้กรอกบนมือถือได้จริง: ช่องเดียว ปุ่มเดียว ตัวใหญ่ กดง่าย
+ * ไม่มี JavaScript เลย ฟอร์ม HTML ล้วน จะได้ไม่พังเวลาเน็ตโรงงานช้า
+ */
+function loginPage(error = '') {
+  const e = error
+    ? `<p style="background:#7f1d1d55;border:1px solid #ef444488;color:#fca5a5;padding:12px 16px;border-radius:10px;margin-bottom:18px">${escapeHtml(error)}</p>`
+    : '';
+  return `<!doctype html>
+<html lang="th"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>เข้าสู่ระบบ — เฝ้าระวังการใช้ไฟ</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;background:#0b1120;color:#e2e8f0;
+       min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+  .box{background:#111c33;border:1px solid #1e293b;border-radius:18px;padding:32px;width:100%;max-width:420px}
+  h1{font-size:22px;margin-bottom:6px}
+  .sub{color:#94a3b8;font-size:15px;margin-bottom:24px}
+  label{display:block;font-size:14px;color:#94a3b8;margin-bottom:8px}
+  input{width:100%;padding:16px;font-size:19px;border-radius:12px;border:1px solid #334155;
+        background:#0b1120;color:#f8fafc;font-family:inherit}
+  input:focus{outline:none;border-color:#f59e0b}
+  button{width:100%;margin-top:16px;padding:16px;font-size:18px;font-weight:700;border:none;
+         border-radius:12px;background:#f59e0b;color:#0b1120;cursor:pointer;font-family:inherit}
+  .hint{color:#64748b;font-size:13px;margin-top:20px;line-height:1.6}
+</style></head><body>
+  <form class="box" method="POST" action="/login">
+    <h1>⚡ เฝ้าระวังการใช้ไฟ</h1>
+    <div class="sub">${escapeHtml(cfg.siteName)}</div>
+    ${e}
+    <label for="p">รหัสผ่าน</label>
+    <input id="p" name="password" type="password" autofocus autocomplete="current-password" inputmode="text">
+    <button type="submit">เข้าสู่ระบบ</button>
+    <div class="hint">เข้าครั้งเดียว เครื่องนี้จะจำไว้ 1 ปี<br>ถ้าลืมรหัส ดูได้ที่ไฟล์ .dev.vars บนเครื่องเซิร์ฟเวอร์</div>
+  </form>
+</body></html>`;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const send = (code, body, type = 'application/json; charset=utf-8') => {
@@ -213,32 +258,60 @@ const server = http.createServer(async (req, res) => {
     res.end(typeof body === 'string' ? body : JSON.stringify(body));
   };
 
-  // ---- ด่านโทเคน ----
+  // ---- ด่านเข้าใช้งาน ----
   //
-  // ใส่ ?k=... ครั้งเดียวแล้วจำไว้เป็นคุกกี้ 1 ปี
+  // มีหน้า login เหมือนแอพอื่นในบริษัท ไม่ใช่โทเคน 32 ตัวต่อท้าย URL
   //
-  // จอติดผนังกับมือถือของพนักงานเปิดหน้านี้ทุกวัน การต้องพก URL ยาว ๆ ที่มีโทเคน
-  // ต่อท้ายทุกครั้งจบลงด้วยการที่มีคนส่งลิงก์เต็ม ๆ ต่อกันในแชท ซึ่งแย่กว่าคุกกี้
-  // httpOnly ที่ JavaScript อ่านไม่ได้และไม่โผล่ในแถบที่อยู่
-  if (cfg.dashboardToken) {
+  // ของเดิมออกแบบตอนที่คิดว่าจะมีแต่จอติดผนังเปิดค้าง เลยใช้รหัสใน URL ซึ่งง่ายสุด
+  // แต่พอมีคนเปิดจากมือถือจริง มันกลายเป็นภาระ: พิมพ์ไม่ไหว จำไม่ได้ และจบลงด้วย
+  // การส่งลิงก์เต็ม ๆ ที่มีรหัสต่อกันในแชท ซึ่งอันตรายกว่ากรอกรหัสในฟอร์มเสียอีก
+  //
+  // สามทางที่ยอมรับ:
+  //   คุกกี้         คนที่ล็อกอินแล้ว (อยู่ได้ 1 ปี)
+  //   x-token header อุปกรณ์/สคริปต์ที่เรียก API
+  //   ?k=            ลิงก์เดิมที่เคยใช้ ยังทำงานได้ ไม่ต้องแก้บุ๊กมาร์ก
+  const secret = cfg.dashboardToken;
+  if (secret) {
     const cookies = String(req.headers.cookie || '');
-    const fromCookie = /(?:^|;\s*)sg_token=([^;]+)/.exec(cookies)?.[1];
-    const given = url.searchParams.get('k') || req.headers['x-token'] || (fromCookie && decodeURIComponent(fromCookie)) || '';
+    const fromCookie = /(?:^|;\s*)sg_auth=([^;]+)/.exec(cookies)?.[1];
+    const passOk = fromCookie && decodeURIComponent(fromCookie) === secret;
+    const headerOk = req.headers['x-token'] === secret;
+    const queryOk = url.searchParams.get('k') === secret;
 
-    if (given !== cfg.dashboardToken) {
-      return send(401, 'ไม่มีสิทธิ์เข้าถึง — ต่อท้าย URL ด้วย ?k=รหัสของคุณ หนึ่งครั้ง', 'text/plain; charset=utf-8');
-    }
-
-    // เพิ่งผ่านด้วย ?k= -> ฝากคุกกี้ไว้ แล้วพาไปหน้าเดิมแบบไม่มีโทเคนใน URL
-    // จะได้ไม่ติดไปกับบุ๊กมาร์ก ประวัติเบราว์เซอร์ หรือภาพหน้าจอที่ส่งต่อกัน
-    if (url.searchParams.get('k') === cfg.dashboardToken) {
-      const clean = url.pathname + (url.search.replace(/(^\?|&)k=[^&]*/, '').replace(/^&/, '?') || '');
+    const setCookieAndGo = (to) => {
       res.writeHead(302, {
-        'Set-Cookie': `sg_token=${encodeURIComponent(cfg.dashboardToken)}; Max-Age=31536000; Path=/; HttpOnly; SameSite=Lax`,
-        Location: clean || '/',
+        'Set-Cookie': `sg_auth=${encodeURIComponent(secret)}; Max-Age=31536000; Path=/; HttpOnly; SameSite=Lax`,
+        Location: to,
         'Cache-Control': 'no-store',
       });
+      res.end();
+    };
+
+    // ส่งฟอร์มมา
+    if (url.pathname === '/login' && req.method === 'POST') {
+      let body = '';
+      for await (const chunk of req) { body += chunk; if (body.length > 4096) break; }
+      const typed = decodeURIComponent((/(?:^|&)password=([^&]*)/.exec(body)?.[1] || '').replace(/\+/g, ' '));
+      if (typed && (typed === cfg.dashboardPassword || typed === secret)) return setCookieAndGo('/');
+      return send(200, loginPage('รหัสผ่านไม่ถูกต้อง'), 'text/html; charset=utf-8');
+    }
+
+    if (url.pathname === '/logout') {
+      res.writeHead(302, { 'Set-Cookie': 'sg_auth=; Max-Age=0; Path=/', Location: '/login' });
       return res.end();
+    }
+
+    if (!passOk && !headerOk && !queryOk) {
+      // API ตอบ 401 เปล่า ๆ ส่วนคนตอบเป็นหน้าฟอร์ม
+      if (url.pathname.startsWith('/api/')) return send(401, { ok: false, error: 'ต้องเข้าสู่ระบบก่อน' });
+      return send(200, loginPage(), 'text/html; charset=utf-8');
+    }
+
+    // เข้าด้วย ?k= -> ฝากคุกกี้แล้วล้างรหัสออกจาก URL
+    // ไม่ให้ติดไปกับบุ๊กมาร์ก ประวัติเบราว์เซอร์ หรือภาพหน้าจอที่ส่งต่อกัน
+    if (queryOk && !passOk) {
+      const clean = url.pathname + (url.search.replace(/(^\?|&)k=[^&]*/, '').replace(/^&/, '?') || '');
+      return setCookieAndGo(clean || '/');
     }
   }
 
@@ -251,7 +324,10 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.pathname === '/api/history') {
       const hours = Number(url.searchParams.get('hours')) || 24;
-      return send(200, store.history(Date.now() - hours * 3600000));
+      // ต้องห่อด้วย { samples: [...] } ให้ตรงกับที่ฝั่งคลาวด์ส่ง
+      // หน้าจอใช้ไฟล์เดียวกันทั้งสองฝั่ง และมันอ่าน hist.samples
+      // ตอนแรกส่งเป็นอาร์เรย์เปล่า ๆ กราฟเลยว่างทั้งที่ข้อมูลมีครบ 563 จุด
+      return send(200, { samples: store.history(Date.now() - hours * 3600000) });
     }
     if (url.pathname === '/api/health') {
       return send(200, { ok: true, inverter: inv.connected, fails: consecutiveFails, db: store.stats() });

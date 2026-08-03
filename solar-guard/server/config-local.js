@@ -67,6 +67,13 @@ export function loadLocalConfig(overrides = {}) {
   };
   const cfg = loadConfig(env);
 
+  // รหัสผ่านสำหรับคนกรอกในหน้า login — ตั้งเองให้จำง่ายและพิมพ์บนมือถือได้
+  //
+  // แยกจาก DASHBOARD_TOKEN โดยตั้งใจ: โทเคน 32 ตัวยังคงใช้กับ header x-token
+  // สำหรับสคริปต์และอุปกรณ์ ส่วนคนใช้รหัสนี้ ไม่ต้องพกสตริงยาว ๆ ไปไหนมาไหน
+  // ถ้าไม่ตั้ง จะยอมรับโทเคนแทนไปก่อน (ระบบไม่ล็อกตัวเองออก)
+  cfg.dashboardPassword = env.DASHBOARD_PASSWORD || '';
+
   // ค่าเฉพาะของฝั่งเซิร์ฟเวอร์ในโรงงาน ไม่มีบน Cloudflare
   cfg.local = {
     port: num(env.LOCAL_PORT, 8787),
