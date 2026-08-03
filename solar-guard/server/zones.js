@@ -121,6 +121,13 @@ export function initZoneTables(db) {
   if (!cols.includes('base_kw')) db.exec('ALTER TABLE zone_tests ADD COLUMN base_kw REAL');
   if (!cols.includes('confirmed')) db.exec('ALTER TABLE zone_tests ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 0');
 
+  // night_ok = ของที่เปิดกลางคืนได้ตามปกติ (แอร์ห้องนอน ตู้เย็น)
+  // ใช้คิดเกณฑ์ "กลางคืนแต่ยังใช้ไฟอยู่" ให้ตรงกับความเป็นจริงของบ้านหลังนี้
+  const zcols = db.prepare('PRAGMA table_info(zone_defs)').all().map((c) => c.name);
+  if (zcols.length && !zcols.includes('night_ok')) {
+    db.exec('ALTER TABLE zone_defs ADD COLUMN night_ok INTEGER NOT NULL DEFAULT 0');
+  }
+
   const n = db.prepare('SELECT count(*) c FROM zone_defs').get().c;
   if (n === 0) {
     const ins = db.prepare(`INSERT INTO zone_defs
@@ -147,6 +154,7 @@ function rowToZone(r) {
     note: r.note || null,
     sort: r.sort,
     active: !!r.active,
+    nightOk: !!r.night_ok,
   };
 }
 
@@ -313,8 +321,9 @@ export class Zones {
       // โซนที่ห้ามปิดต้องไม่มีลำดับการปิดค้างอยู่ ไม่งั้นสองค่านี้จะขัดกันเอง
       const order = isProtected ? null : numOr(input.shedOrder, cur.shedOrder);
       this.db.prepare(`UPDATE zone_defs SET name=?, minutes=?, shed_order=?, protected=?,
-                       is_baseline=?, owner=?, note=? WHERE slug=?`)
-        .run(name, minutes, order, isProtected ? 1 : 0, isBaseline ? 1 : 0, owner, note, slug);
+                       is_baseline=?, owner=?, note=?, night_ok=? WHERE slug=?`)
+        .run(name, minutes, order, isProtected ? 1 : 0, isBaseline ? 1 : 0, owner, note,
+          input.nightOk ? 1 : 0, slug);
       this.log(`แก้โซน "${name}"`);
       return this.def(slug);
     }
@@ -329,9 +338,10 @@ export class Zones {
     const order = isProtected ? null : numOr(input.shedOrder, maxOrder + 1);
 
     this.db.prepare(`INSERT INTO zone_defs
-      (slug,name,minutes,shed_order,protected,is_baseline,owner,note,sort)
-      VALUES (?,?,?,?,?,?,?,?,?)`)
-      .run(newSlug, name, minutes, order, isProtected ? 1 : 0, isBaseline ? 1 : 0, owner, note, maxSort + 1);
+      (slug,name,minutes,shed_order,protected,is_baseline,owner,note,sort,night_ok)
+      VALUES (?,?,?,?,?,?,?,?,?,?)`)
+      .run(newSlug, name, minutes, order, isProtected ? 1 : 0, isBaseline ? 1 : 0, owner, note,
+        maxSort + 1, input.nightOk ? 1 : 0);
     this.log(`เพิ่มโซนใหม่ "${name}" (เปิดค้าง ${minutes} นาที)`);
     return this.def(newSlug);
   }
@@ -390,6 +400,35 @@ export class Zones {
    */
   savedBaselineKw() {
     return sumBaselines(this.list(), this.latestAll());
+  }
+
+  /**
+   * เกณฑ์ "กลางคืนแต่ยังใช้ไฟอยู่" ที่คิดจากของจริงในโรงงาน
+   *
+   *   ไฟส่องสว่างที่ปิดไม่ได้ + ของที่ยอมให้เปิดกลางคืน + เผื่ออีกนิด
+   *
+   * ที่ต้องคิดเองเพราะค่าคงที่ในไฟล์ตั้งค่าไม่มีทางถูก: ตั้งต่ำก็เตือนทุกคืน
+   * ทั้งที่ไม่มีอะไรผิด (ไฟส่องสว่างอย่างเดียวก็ 1.8-3.4 kW แล้ว) ตั้งสูงก็พลาด
+   * ของจริง และพอซื้อแอร์เพิ่มหนึ่งตัวค่าที่เคยถูกก็ผิดทันทีโดยไม่มีใครนึกถึง
+   *
+   * คืน null ถ้ายังวัดไม่พอ — ให้ใช้ค่าที่ตั้งไว้ในไฟล์ตั้งค่าไปก่อน
+   */
+  nightIdleKw(marginKw = 1.5) {
+    const latest = this.latestAll();
+    const defs = this.list();
+    const base = sumBaselines(defs, latest);
+    if (base === null) return null;
+
+    const nightZones = defs.filter((z) => z.nightOk && !z.baseline && latest[z.slug]?.usable);
+    const nightKw = nightZones.reduce((s, z) => s + (latest[z.slug].steadyKw || 0), 0);
+
+    return {
+      kw: round1(base + nightKw + marginKw),
+      baselineKw: round1(base),
+      nightAllowedKw: round1(nightKw),
+      marginKw,
+      parts: nightZones.map((z) => ({ name: z.name, kw: round1(latest[z.slug].steadyKw) })),
+    };
   }
 
   start(slug, { at = Date.now(), preRunning = false } = {}) {
@@ -535,6 +574,7 @@ export class Zones {
         shedOrder: z.shedOrder,
         protectedZone: !!z.protectedZone,
         baseline: !!z.baseline,
+        nightOk: !!z.nightOk,
         owner: z.owner || null,
         note: z.note || null,
         measured: r && r.usable
@@ -580,6 +620,8 @@ export class Zones {
       totalCount: defs.filter((z) => !z.baseline).length,
       nextSuggestion: nextToMeasure(zones),
       shedList: buildShedList(this),
+      nightIdle: this.nightIdleKw(),
+      nightIdleConfigKw: cfg?.nightIdleKw ?? null,
       removedZones: this.list(true).filter((z) => !z.active).map((z) => ({ slug: z.slug, name: z.name })),
     };
   }

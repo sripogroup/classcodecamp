@@ -193,6 +193,7 @@ export default {
 
         const body = (await request.json().catch(() => null)) || {};
         const state = (await readState(env)) || emptyState();
+        const prev = state.heartbeat;
         state.heartbeat = {
           at: Date.now(),
           level: body.level ?? null,
@@ -201,11 +202,36 @@ export default {
           loadKw: num(body.loadKw),
           monthPeakKw: num(body.monthPeakKw),
           emergency: !!body.emergency,
+          // ข้อมูลเพิ่มเพื่อให้ /status ในแชทตอบจากของจริงได้ ไม่ใช่ค่าค้างเก่า
+          window: body.window ?? null,
+          headroom: body.headroom ?? null,
+          monthPeaks: body.monthPeaks ?? null,
+          billToday: num(body.billToday),
+          billMonth: num(body.billMonth),
+          nightIdleKw: num(body.nightIdleKw),
         };
         // เคยเตือนว่าเงียบไปแล้ว พอกลับมาต้องล้างธง จะได้เตือนได้อีกถ้าหายไปอีกรอบ
-        if (state.localDownNotifiedAt) state.localDownNotifiedAt = 0;
-        await writeState(env, state);
-        return json({ ok: true, at: state.heartbeat.at });
+        const wasDown = !!state.localDownNotifiedAt;
+        if (wasDown) state.localDownNotifiedAt = 0;
+
+        // เขียน KV เท่าที่จำเป็น — โควตาแพ็กฟรีคือ 1,000 ครั้ง/วัน และวันที่
+        // ใช้จนหมด คลาวด์จะไม่รู้เลยว่าเครื่องในโรงงานยังอยู่ แล้วอาจเตือนว่า
+        // เครื่องตายทั้งที่ยังทำงานปกติ (เกิดจริง 3 ส.ค. 2569)
+        //
+        // เขียนเมื่อ: เพิ่งกลับมาจากที่เคยเงียบ / ระดับเปลี่ยน / มีเรื่องฉุกเฉิน
+        // นอกนั้นเขียนอย่างช้าทุก 15 นาที
+        //
+        // 15 ต้องน้อยกว่า localDownMin (25) เสมอ ไม่งั้นคลาวด์จะอ่านเวลาที่ค้าง
+        // อยู่ใน KV แล้วสรุปว่าเครื่องในโรงงานตาย ทั้งที่มันส่งสัญญาณมาตรงเวลา
+        // — เตือนผิดแบบนี้อันตรายกว่าไม่เตือน เพราะครั้งต่อไปจะไม่มีใครเชื่อ
+        const changed = wasDown
+          || prev?.level !== state.heartbeat.level
+          || state.heartbeat.emergency
+          || !prev?.at
+          || (Date.now() - prev.at) >= 15 * 60000;
+
+        if (changed) await writeState(env, state);
+        return json({ ok: true, at: state.heartbeat.at, saved: changed });
       }
 
       // ส่งข้อความแทนเซิร์ฟเวอร์ในโรงงาน
@@ -811,6 +837,43 @@ async function handleTelegramWebhook(request, env, cfg) {
   }
 
   if (cmd === '/status' || cmd === '/สถานะ') {
+    /**
+     * โหมด local: สมองอยู่บนเครื่องในโรงงาน คลาวด์รู้เท่าที่สัญญาณ "ยังอยู่ดี" บอก
+     *
+     * ต้องอ่านจากตรงนั้น ไม่ใช่จาก samples ซึ่งเป็นของเก่าจากสมัยที่คลาวด์ยังดึง
+     * FusionSolar เอง — ค้างอยู่ตั้งแต่วันที่ย้ายระบบและจะไม่ขยับอีกเลย
+     * ต้องบอกอายุข้อมูลด้วยเสมอ ตัวเลขที่ไม่บอกว่าเก่าแค่ไหนคือตัวเลขที่หลอกคนอ่าน
+     */
+    const hb = state.heartbeat;
+    if (cfg.dataSource === 'local' && hb?.at) {
+      const ageMin = Math.round(minutesBetween(now, hb.at));
+      const icon = { green: '🟢 ปกติ', yellow: '🟡 เฝ้าระวัง', red: '🔴 ต้องลดโหลด' }[hb.level] || '⚪ ไม่มีข้อมูล';
+      const h = hb.headroom || {};
+      const w = hb.window;
+      const mp = hb.monthPeaks;
+      const stale = ageMin > 20;
+      const body = [
+        icon,
+        `ดึงไฟหลวง <b>${round1(hb.gridImportKw)} kW</b> | โซลาร์ ${round1(hb.pvKw)} kW | โหลด ${round1(hb.loadKw)} kW`,
+        w ? `⏱ หน้าต่างนี้เหลือ ${w.remainMin} นาที คาดจบที่ <b>${round1(w.projectedKw)} kW</b>` : '',
+        `📅 <b>สูงสุดของเดือน${h.monthKey ? ` ${escapeTg(h.monthKey)}` : ''}</b>`,
+        h.peakKw != null ? `   ไฟหลวง <b>${round1(h.peakKw)} kW</b> (เฉลี่ย 15 นาที ตัวที่การไฟฟ้าคิดเงิน)` : '',
+        h.peakAt ? `   ทำไว้เมื่อ ${thWhen(h.peakAt)} น.` : '',
+        h.limitKw != null ? `   เพดานที่ตั้งไว้ ${h.limitKw} kW — เหลืออีก ${round1(h.headroomKw)} kW` : '',
+        mp ? `   โหลดรวมสูงสุด ${round1(mp.loadKw)} kW — ${thWhen(mp.loadAt)} น.` : '',
+        mp ? `   โซลาร์สูงสุด ${round1(mp.pvKw)} kW — ${thWhen(mp.pvAt)} น.` : '',
+        hb.billMonth != null ? `💸 ค่าไฟเดือนนี้ ≈ <b>${Math.round(hb.billMonth).toLocaleString('th-TH')} บาท</b>`
+          + (hb.billToday != null ? ` (วันนี้ ${Math.round(hb.billToday).toLocaleString('th-TH')} บาท)` : '') : '',
+        '',
+        stale
+          ? `⚠️ <b>ข้อมูลเก่า ${ageMin} นาที</b> (${hhmm(hb.at)} น.) — คลาวด์ยังรับสัญญาณจากเครื่องในโรงงานไม่ได้\n`
+            + '<i>ตัวเครื่องน่าจะยังเฝ้าไฟให้อยู่ ให้ดูตัวเลขสดที่หน้าจอในโรงงาน</i>'
+          : `<i>ข้อมูลเมื่อ ${hhmm(hb.at)} น. (${ageMin} นาทีที่แล้ว) — คลาวด์รับรายงานทุก 10 นาที ตัวเลขสดอยู่ที่หน้าจอในโรงงาน</i>`,
+      ].filter(Boolean).join('\n');
+      await reply(body, { silent: true });
+      return json({ ok: true });
+    }
+
     const s = state.samples?.[state.samples.length - 1];
     const icon = { green: '🟢 ปกติ', yellow: '🟡 เฝ้าระวัง', red: '🔴 ต้องลดโหลด' }[state.level] || '⚪ ไม่มีข้อมูล';
     const w = state.window;

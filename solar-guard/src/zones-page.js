@@ -159,6 +159,7 @@ export function zonesHtml(cfg) {
     <input id="fNote" placeholder="เช่น ปิดได้เฉพาะตอนไม่มีประชุม">
     <label class="chk"><input type="checkbox" id="fProt"> ห้ามสั่งปิดเด็ดขาด (เช่น ไฟส่องสว่าง ตู้แช่ที่ของจะเสีย)</label>
     <label class="chk"><input type="checkbox" id="fBase"> เป็นโหลดพื้นฐาน เปิดค้างตลอด (ใช้เป็นเส้นฐานให้โซนอื่น)</label>
+    <label class="chk"><input type="checkbox" id="fNight"> เปิดกลางคืนได้ตามปกติ (แอร์ห้องนอน ตู้เย็น) — ระบบจะไม่เตือนว่าลืมปิด</label>
     <div class="row">
       <button class="go" id="btnSaveZone">เพิ่มโซน</button>
       <button class="ghost" id="btnResetForm" style="max-width:110px;display:none">ยกเลิก</button>
@@ -299,6 +300,16 @@ function render() {
     };
   });
 
+  // ---- เกณฑ์กลางคืน ----
+  const ni = d.nightIdle;
+  $('nightNote').innerHTML = ni
+    ? 'ตอนนี้เกณฑ์คือ <b>' + ni.kw.toFixed(1) + ' kW</b> = ไฟส่องสว่าง ' + ni.baselineKw.toFixed(1)
+      + ' + ของที่เปิดกลางคืนได้ ' + ni.nightAllowedKw.toFixed(1) + ' + เผื่อ ' + ni.marginKw
+      + (ni.parts.length ? '<br>ของที่อนุญาต: ' + ni.parts.map((p) => p.name + ' ' + p.kw + ' kW').join(', ') : '')
+      + '<br>กลางคืนถ้าโหลดเกินนี้ ระบบจะเตือนว่ามีอะไรเปิดค้าง'
+    : 'ยังคิดเองไม่ได้ — ใช้ค่าจากไฟล์ตั้งค่า ' + (d.nightIdleConfigKw ?? '?') + ' kW '
+      + '(วัดไฟส่องสว่างให้ครบก่อน ระบบถึงจะคิดเกณฑ์เองได้)';
+
   $('shedNote').innerHTML = d.shedList.length
     ? 'ปิดครบทั้งหมดนี้ลดได้ <b>' + d.totalShedableKw.toFixed(1) + ' kW</b> — ' +
       'เวลาไฟเกิน ระบบจะเลือกจากบนลงล่างให้พอดีกับส่วนที่เกิน แล้วส่งเข้า Telegram / LINE / อีเมล ' +
@@ -323,6 +334,7 @@ function fillForm(z) {
   $('fNote').value = z && z.note ? z.note : '';
   $('fProt').checked = !!(z && z.protectedZone);
   $('fBase').checked = !!(z && z.baseline);
+  $('fNight').checked = !!(z && z.nightOk);
   $('btnSaveZone').textContent = z ? 'บันทึกการแก้ไข' : 'เพิ่มโซน';
   $('btnResetForm').style.display = z ? 'block' : 'none';
   $('formHint').textContent = z
@@ -356,6 +368,7 @@ $('btnSaveZone').onclick = async () => {
     note: $('fNote').value,
     protectedZone: $('fProt').checked,
     baseline: $('fBase').checked,
+    nightOk: $('fNight').checked,
   };
   if (!body.name.trim()) { msg('ต้องใส่ชื่อโซนก่อน', 'err'); return; }
   try {

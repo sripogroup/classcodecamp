@@ -54,6 +54,7 @@ const inv = new Inverter({
 let lastHeartbeat = 0;
 let lastSummaryDay = '';
 let consecutiveFails = 0;
+let heartbeatFails = 0;
 
 const zones = new Zones(store, (m) => log(m));
 
@@ -71,6 +72,20 @@ function applyShedList() {
   if (!list.length) return 0;
   cfg.loadShed = list;
   return list.length;
+}
+
+/**
+ * ตั้งเกณฑ์ "กลางคืนแต่ยังใช้ไฟอยู่" จากของที่วัดจริง
+ *
+ * ค่าคงที่ในไฟล์ตั้งค่าไม่มีทางถูก เพราะมันไม่รู้ว่าไฟส่องสว่างที่ปิดไม่ได้กินเท่าไร
+ * ตั้ง 3 kW ทั้งที่ไฟส่องสว่างอย่างเดียวก็ 3.4 kW = เตือนทุกคืนทั้งที่ไม่มีอะไรผิด
+ * แล้วคนก็เลิกอ่าน ซึ่งอันตรายกว่าไม่เตือนเลย
+ */
+function applyNightIdle() {
+  const n = zones.nightIdleKw();
+  if (!n) return null;
+  cfg.nightIdleKw = n.kw;
+  return n;
 }
 
 const log = (msg, level = 'INFO') => {
@@ -190,6 +205,12 @@ async function heartbeat(view) {
     const res = await fetch(`${L.workerUrl.replace(/\/$/, '')}/api/heartbeat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Ingest-Token': L.ingestToken },
+      // ส่งข้อมูลให้ครบพอที่คลาวด์จะตอบ /status ได้ด้วยตัวเอง
+      //
+      // เดิมส่งแค่ 4 ตัวเลขพอให้รู้ว่า "ยังไม่ตาย" ผลคือใครพิมพ์ /status ใส่บอท
+      // จะได้ตัวเลขจากครั้งสุดท้ายที่คลาวด์ดึงจาก FusionSolar เองซึ่งอาจเก่าเป็น
+      // ชั่วโมง โดยไม่มีอะไรบอกว่ามันเก่า (เจอจริง 3 ส.ค. 69 — /status บอก 17:32
+      // ตอนห้าทุ่มครึ่ง)
       body: JSON.stringify({
         at: Date.now(),
         level: view.level,
@@ -198,10 +219,39 @@ async function heartbeat(view) {
         loadKw: view.loadKw,
         monthPeakKw: view.month?.peakKw ?? null,
         emergency: view.emergency,
+        window: view.window || null,
+        headroom: view.month || null,
+        monthPeaks: view.monthPeaks || null,
+        billToday: view.bill?.day?.totalBaht ?? null,
+        billMonth: view.bill?.month?.totalBaht ?? null,
+        nightIdleKw: cfg.nightIdleKw,
       }),
     });
-    if (!res.ok) log(`ส่งสัญญาณยังอยู่ดีไม่สำเร็จ: HTTP ${res.status}`, 'WARN');
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      heartbeatFails++;
+      log(`ส่งสัญญาณยังอยู่ดีไม่สำเร็จ: HTTP ${res.status} ${detail.error || ''}`, 'WARN');
+
+      // โควตาเขียนของคลาวด์หมด = คลาวด์จะไม่รู้ว่าเรายังอยู่ แล้วอาจเตือนว่า
+      // เครื่องตายทั้งที่ยังทำงานปกติ และ /status จะค้างอยู่ที่ค่าเก่า
+      // ต้องบอกคน เพราะอาการนี้เงียบสนิทถ้าไม่มีใครเปิดล็อกอ่าน
+      // (ช่องส่งข้อความไม่แตะ KV จึงยังส่งได้แม้โควตาเขียนหมด)
+      if (heartbeatFails === 3 && !NO_ALERTS) {
+        await relay(
+          `⚠️ <b>คลาวด์รับสัญญาณไม่ได้</b>\n${cfg.siteName} • ${hhmm()} น.\n`
+          + `เหตุผล: ${detail.error || `HTTP ${res.status}`}\n\n`
+          + 'เครื่องในโรงงาน<b>ยังเฝ้าไฟให้ตามปกติทุกอย่าง</b> และยังส่งข้อความได้\n'
+          + 'ที่ใช้ไม่ได้ชั่วคราวคือ /status ในแชท (จะให้ตัวเลขเก่า) — ให้ดูที่หน้าจอในโรงงานแทน\n\n'
+          + '<i>ถ้าเป็นเรื่องโควตารายวันของ Cloudflare จะหายเองตอน 07:00 น.</i>',
+          { toBoss: true, silent: true },
+        );
+      }
+      return;
+    }
+    if (heartbeatFails >= 3) log(`ส่งสัญญาณยังอยู่ดีได้แล้ว (พลาดไป ${heartbeatFails} ครั้ง)`);
+    heartbeatFails = 0;
   } catch (err) {
+    heartbeatFails++;
     log(`ส่งสัญญาณยังอยู่ดีไม่สำเร็จ: ${err.message}`, 'WARN');
   }
 }
@@ -429,12 +479,14 @@ const server = http.createServer(async (req, res) => {
       const body = await readJson(req);
       const result = zones.confirm(body.id);
       const n = applyShedList();
+      applyNightIdle();
       return send(200, { ok: true, result, shedCount: n });
     }
     if (url.pathname === '/api/loads/stop' && req.method === 'POST') {
       const body = await readJson(req);
       const result = zones.stop(String(body.note || ''));
       const n = applyShedList();
+      applyNightIdle();
       log(`รายการให้ไปปิดตอนไฟเกิน อัปเดตแล้ว ${n} รายการ (จากค่าที่วัดจริง)`);
       return send(200, { ok: true, result, shedCount: n });
     }
@@ -446,6 +498,7 @@ const server = http.createServer(async (req, res) => {
       const to = now - Number(b.toMinAgo || 0) * 60000;
       const result = zones.record(String(b.zone || ''), from, to, String(b.note || ''), !!b.preRunning);
       const n = applyShedList();
+      applyNightIdle();
       return send(200, { ok: true, result, shedCount: n });
     }
     if (url.pathname === '/api/loads/cancel' && req.method === 'POST') {
@@ -456,6 +509,7 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/loads/zone' && req.method === 'POST') {
       const zone = zones.saveZone(await readJson(req));
       applyShedList();
+      applyNightIdle();
       return send(200, { ok: true, zone });
     }
     if (url.pathname === '/api/loads/zone/remove' && req.method === 'POST') {
@@ -503,6 +557,11 @@ log(`ฐานข้อมูล ${L.dbFile}`);
   log(n
     ? `รายการให้ไปปิดตอนไฟเกิน: ใช้ค่าที่วัดจริง ${n} โซน (แก้ได้ที่หน้า /loads)`
     : 'ยังไม่เคยวัดโหลดรายโซน — เวลาเตือนจะยังใช้รายการตัวอย่างที่เดาไว้ (ไปวัดที่หน้า /loads)');
+
+  const ni = applyNightIdle();
+  log(ni
+    ? `เกณฑ์กลางคืน: ${ni.kw} kW (ไฟส่องสว่าง ${ni.baselineKw} + ของที่เปิดกลางคืนได้ ${ni.nightAllowedKw} + เผื่อ ${ni.marginKw})`
+    : `เกณฑ์กลางคืน: ${cfg.nightIdleKw} kW (ค่าจากไฟล์ตั้งค่า — ยังวัดไฟส่องสว่างไม่ครบ)`);
 }
 
 // เปิดหน้าเว็บก่อนแตะอินเวอร์เตอร์
