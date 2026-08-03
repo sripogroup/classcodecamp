@@ -1,0 +1,12 @@
+﻿node_modules/
+__pycache__/
+pw-browsers/
+browser/
+admin-browser/
+.next/
+backups/
+_disabled_backup_role/
+*.log
+*.lock
+Thumbs.db
+desktop.ini

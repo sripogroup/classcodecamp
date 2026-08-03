@@ -15,6 +15,7 @@ export function dashboardHtml(cfg, token) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>เฝ้าระวังการใช้ไฟ — ${escapeHtml(cfg.siteName)}</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><circle cx='32' cy='32' r='14' fill='%23FDB813'/><g stroke='%23FDB813' stroke-width='5' stroke-linecap='round'><line x1='32' y1='4' x2='32' y2='14'/><line x1='32' y1='50' x2='32' y2='60'/><line x1='4' y1='32' x2='14' y2='32'/><line x1='50' y1='32' x2='60' y2='32'/><line x1='12' y1='12' x2='19' y2='19'/><line x1='45' y1='45' x2='52' y2='52'/><line x1='12' y1='52' x2='19' y2='45'/><line x1='45' y1='19' x2='52' y2='12'/></g></svg>">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;background:#0b1120;color:#e2e8f0;min-height:100vh;padding:24px}
