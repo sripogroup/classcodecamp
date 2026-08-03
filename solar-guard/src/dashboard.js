@@ -59,6 +59,25 @@ export function dashboardHtml(cfg, token) {
   .winrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px;margin-top:12px}
   .wv{font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:4px}
   .wv.alarm{color:#ef4444}
+  /* ---- แผนภาพไฟวิ่ง ---- */
+  #flowCard{margin-top:16px}
+  #flowSvg{width:100%;height:auto;max-height:300px;display:block}
+  .fnode{fill:#0e1a2f;stroke:#334155;stroke-width:1.5}
+  .fnode.act{stroke:#475569}
+  .ficon{font-size:30px;dominant-baseline:central;text-anchor:middle}
+  .fname{fill:#94a3b8;font-size:12px;text-anchor:middle}
+  .fval{font-size:20px;font-weight:800;text-anchor:middle;font-variant-numeric:tabular-nums}
+  .fval.grid{fill:#f59e0b} .fval.pv{fill:#22c55e} .fval.load{fill:#60a5fa}
+  /* เส้นฐานจาง ๆ ให้เห็นโครงตลอด แม้สายนั้นไม่มีไฟวิ่ง */
+  .fpipe{fill:none;stroke:#1e293b;stroke-width:5;stroke-linecap:round}
+  /* เส้นประที่เลื่อนไปเรื่อย ๆ = ไฟกำลังวิ่ง ทิศทางกลับได้ด้วย animation-direction */
+  .fflow{fill:none;stroke-width:5;stroke-linecap:round;stroke-dasharray:2 16;
+         animation:march 2s linear infinite;opacity:0}
+  @keyframes march{to{stroke-dashoffset:-72}}
+  .fflow.on{opacity:1}
+  .fflow.rev{animation-direction:reverse}
+  .fflow.g{stroke:#f59e0b} .fflow.p{stroke:#22c55e}
+  @media (prefers-reduced-motion:reduce){ .fflow{animation:none} }
   #monthCard{margin-top:16px}
   #billCard{margin-top:16px}
   .billtop{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px;margin-top:6px}
@@ -109,6 +128,8 @@ export function dashboardHtml(cfg, token) {
     </div>
   </div>
 
+  <div id="audioWarn" style="display:none;margin-top:16px;background:#7f1d1d33;border:1px solid #ef444488;border-radius:14px;padding:14px 18px;font-size:17px;color:#fca5a5"></div>
+
   <div id="eveBanner" style="display:none;margin-top:16px;background:#f59e0b1a;border:1px solid #f59e0b66;border-radius:14px;padding:14px 18px;font-size:17px;line-height:1.55;color:#fcd34d"></div>
 
   <div class="card ceiling" id="ceilingCard">
@@ -134,6 +155,38 @@ export function dashboardHtml(cfg, token) {
       <div><div class="label">คาดว่าจะจบที่</div><div class="wv" id="wproj">–</div></div>
       <div><div class="label">เวลาที่เหลือใช้ได้ไม่เกิน</div><div class="wv" id="wallow">–</div></div>
     </div>
+  </div>
+
+  <div class="card" id="flowCard">
+    <div class="label">⚡ ไฟกำลังไหลอยู่ตอนนี้ <span id="flowAge" style="color:#64748b"></span></div>
+    <svg id="flowSvg" viewBox="0 0 620 250" role="img" aria-label="แผนภาพการไหลของไฟ">
+      <!-- เส้นฐาน: การไฟฟ้า -> โหลด, โซลาร์ -> โหลด, โซลาร์ -> การไฟฟ้า (ขายออก) -->
+      <path id="pipeG" class="fpipe" d="M150 168 C 210 168, 240 140, 268 106"/>
+      <path id="pipeP" class="fpipe" d="M470 168 C 410 168, 380 140, 352 106"/>
+      <path id="pipeX" class="fpipe" d="M470 196 C 400 232, 220 232, 150 196"/>
+      <path id="flowG" class="fflow g" d="M150 168 C 210 168, 240 140, 268 106"/>
+      <path id="flowP" class="fflow p" d="M470 168 C 410 168, 380 140, 352 106"/>
+      <path id="flowX" class="fflow p" d="M470 196 C 400 232, 220 232, 150 196"/>
+
+      <!-- โหลด (บนกลาง) -->
+      <rect id="nLoad" class="fnode" x="248" y="34" width="124" height="72" rx="14"/>
+      <text class="ficon" x="310" y="62">🏭</text>
+      <text class="fval load" x="310" y="92"><tspan id="fLoad">–</tspan> kW</text>
+      <text class="fname" x="310" y="124">โหลดรวมทั้งโรงงาน</text>
+
+      <!-- การไฟฟ้า (ล่างซ้าย) -->
+      <rect id="nGrid" class="fnode" x="26" y="146" width="124" height="72" rx="14"/>
+      <text class="ficon" x="88" y="174">🗼</text>
+      <text class="fval grid" x="88" y="204"><tspan id="fGrid">–</tspan> kW</text>
+      <text class="fname" x="88" y="236">การไฟฟ้า</text>
+
+      <!-- โซลาร์ (ล่างขวา) -->
+      <rect id="nPv" class="fnode" x="470" y="146" width="124" height="72" rx="14"/>
+      <text class="ficon" x="532" y="174">☀️</text>
+      <text class="fval pv" x="532" y="204"><tspan id="fPv">–</tspan> kW</text>
+      <text class="fname" x="532" y="236">โซลาร์</text>
+    </svg>
+    <div class="label" id="flowNote" style="margin-top:6px"></div>
   </div>
 
   <div class="grid">
@@ -253,9 +306,33 @@ btn.onclick = () => {
   soundOn = !soundOn;
   localStorage.setItem('solarSound', soundOn ? '1' : '0');
   paintBtn();
-  if (soundOn) { ensureAudio(); beep(880, 0.15); } else stopSiren();
+  if (soundOn) {
+    ensureAudio(); beep(880, 0.15);
+    /* ขอสิทธิ์แจ้งเตือนตอนนี้เลย ต้องขอตอนคนกดปุ่มเท่านั้น เบราว์เซอร์ถึงจะยอม */
+    try { if('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch(e){}
+  } else stopSiren();
 };
 paintBtn();
+
+/* เบราว์เซอร์ห้ามเล่นเสียงจนกว่าคนจะแตะหน้าเว็บก่อน จอที่เปิดค้างไว้เฉย ๆ
+   จึงเงียบสนิทตอนเกิดเรื่อง โดยที่ไม่มีใครรู้ว่ามันเงียบ
+   ถ้าเปิดเสียงไว้แล้วแต่เบราว์เซอร์ยังบล็อกอยู่ ต้องบอกให้เห็นชัด ๆ ไม่ใช่เงียบไป */
+function audioBlocked(){
+  return soundOn && (!audioCtx || audioCtx.state === 'suspended');
+}
+function paintAudioWarn(){
+  const el = document.getElementById('audioWarn');
+  const need = !soundOn || audioBlocked();
+  el.style.display = need ? 'block' : 'none';
+  if (need) {
+    el.innerHTML = soundOn
+      ? '🔇 <b>เบราว์เซอร์ปิดเสียงไว้</b> — แตะที่หน้าจอนี้หนึ่งครั้งเพื่อปลดล็อกเสียงเตือน'
+      : '🔇 <b>ยังไม่ได้เปิดเสียงเตือน</b> — กดปุ่ม "เปิดเสียงเตือน" ด้านล่าง ไม่งั้นตอนไฟแดงจะไม่มีเสียงอะไรเลย';
+  }
+}
+/* แตะตรงไหนก็ได้ = ปลดล็อกเสียง (เบราว์เซอร์นับว่าเป็น user gesture) */
+['click','touchstart','keydown'].forEach((ev) =>
+  document.addEventListener(ev, () => { if(soundOn){ ensureAudio(); paintAudioWarn(); } }, { passive: true }));
 
 function ensureAudio(){ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); }
 function beep(freq, dur){
@@ -268,20 +345,72 @@ function beep(freq, dur){
   o.start(); o.stop(audioCtx.currentTime+dur+0.02);
 }
 /* ไซเรนกวาดความถี่ขึ้นลง เหมือนไซเรนจริง */
+/* ไซเรนสามชั้น ให้ได้ยินข้ามเสียงเครื่องจักรในโรงงาน
+   ชั้นล่าง = ตัวเสียงหนัก / ชั้นกลาง = เสียงกวาดที่หูจับได้ไกล / ชั้นบน = ความแหลมที่ทะลุเสียงรบกวน
+   ดังกว่าเดิมราว 3 เท่า และซ้ำถี่กว่าเดิม 3 เท่า (1.4 วิ แทน 4 วิ) */
 function siren(){
   if(!soundOn) return; ensureAudio();
-  const o = audioCtx.createOscillator(), g = audioCtx.createGain(), t = audioCtx.currentTime;
-  o.type='sawtooth'; o.connect(g); g.connect(audioCtx.destination);
-  o.frequency.setValueAtTime(520, t);
-  o.frequency.linearRampToValueAtTime(1040, t+0.5);
-  o.frequency.linearRampToValueAtTime(520, t+1.0);
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(0.3, t+0.05);
-  g.gain.exponentialRampToValueAtTime(0.0001, t+1.0);
-  o.start(t); o.stop(t+1.05);
+  const t = audioCtx.currentTime;
+  const master = audioCtx.createGain();
+  master.gain.value = 0.95;
+  master.connect(audioCtx.destination);
+
+  const layer = (type, f0, f1, peak, dur, delay) => {
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.type = type; o.connect(g); g.connect(master);
+    const s = t + delay;
+    o.frequency.setValueAtTime(f0, s);
+    o.frequency.linearRampToValueAtTime(f1, s + dur*0.55);
+    o.frequency.linearRampToValueAtTime(f0, s + dur);
+    g.gain.setValueAtTime(0.0001, s);
+    g.gain.exponentialRampToValueAtTime(peak, s + 0.03);
+    g.gain.setValueAtTime(peak, s + dur*0.75);
+    g.gain.exponentialRampToValueAtTime(0.0001, s + dur);
+    o.start(s); o.stop(s + dur + 0.05);
+  };
+
+  layer('square',   115,  190, 0.55, 1.15, 0);     /* ตัวเสียงหนัก */
+  layer('sawtooth', 620, 1350, 0.45, 1.15, 0);     /* เสียงกวาดแบบไซเรน */
+  layer('sawtooth', 1240, 1360, 0.18, 1.15, 0);    /* ความแหลม */
+
+  /* มือถือที่เปิดหน้านี้ค้างไว้ ให้สั่นด้วย เผื่ออยู่ในที่เสียงดังจนไม่ได้ยิน */
+  try { if(navigator.vibrate) navigator.vibrate([450, 120, 450]); } catch(e){}
 }
-function startSiren(){ if(sirenTimer) return; siren(); sirenTimer = setInterval(siren, 4000); }
-function stopSiren(){ if(sirenTimer){ clearInterval(sirenTimer); sirenTimer=null; } }
+
+let titleFlip = null;
+const BASE_TITLE = document.title;
+function startSiren(){
+  if(sirenTimer) return;
+  siren(); sirenTimer = setInterval(siren, 1400);
+  /* แท็บที่ถูกซ่อนอยู่ก็ต้องรู้ตัว — สลับชื่อแท็บให้กะพริบ */
+  if(!titleFlip){
+    let on = false;
+    titleFlip = setInterval(()=>{ on = !on; document.title = on ? '🔴 ลดการใช้ไฟด่วน!' : BASE_TITLE; }, 900);
+  }
+  notifyOnce();
+}
+function stopSiren(){
+  if(sirenTimer){ clearInterval(sirenTimer); sirenTimer=null; }
+  if(titleFlip){ clearInterval(titleFlip); titleFlip=null; document.title = BASE_TITLE; }
+  lastNotified = 0;
+}
+
+/* แจ้งเตือนระดับเบราว์เซอร์ เห็นได้แม้สลับไปแท็บอื่นหรือย่อหน้าต่างไว้ */
+let lastNotified = 0;
+function notifyOnce(){
+  try{
+    if(!('Notification' in window) || Notification.permission !== 'granted') return;
+    if(Date.now() - lastNotified < 120000) return;   /* ไม่ยิงถี่กว่า 2 นาที */
+    lastNotified = Date.now();
+    const n = new Notification('🔴 ไฟจากการไฟฟ้าเข้าหนัก', {
+      body: 'ให้ไปปิดอุปกรณ์ตามรายการบนหน้าจอทันที',
+      tag: 'solar-guard-red',
+      renotify: true,
+      requireInteraction: true,
+    });
+    n.onclick = () => { window.focus(); n.close(); };
+  }catch(e){}
+}
 
 const HEADLINES = {
   green: ['🟢 ปกติ — โซลาร์รับไหว', 'ใช้ไฟได้ตามปกติ'],
@@ -347,6 +476,10 @@ function render(st, samples){
       ? '🛑 เดือนนี้เกินเพดานไปแล้ว — เริ่มนับใหม่เดือนหน้า'
       : 'ใช้ไปแล้ว ' + m.usedPct + '% ของเพดาน • เกิน ' + m.limitKw + ' kW แม้ครั้งเดียว = ค่าไฟประเภทที่ 3 นาน 12 เดือน';
   }
+
+  /* ---- แผนภาพไฟวิ่ง + เตือนว่าเสียงถูกบล็อกอยู่ ---- */
+  drawFlow(st);
+  paintAudioWarn();
 
   /* ---- แถบเฝ้าระวังเข้มช่วงเย็น ---- */
   const eb = document.getElementById('eveBanner');
@@ -477,6 +610,51 @@ function render(st, samples){
 }
 
 function escapeHtml(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+/* แผนภาพไฟวิ่ง — ยิ่งกำลังไฟมาก เส้นประยิ่งวิ่งเร็ว
+   ไม่ได้ใช้ requestAnimationFrame เพราะจอนี้เปิดค้างทั้งวัน ปล่อยให้ CSS
+   จัดการแอนิเมชันจะกินซีพียูน้อยกว่ามาก และหยุดเองเมื่อแท็บถูกซ่อน */
+function drawFlow(st){
+  const set = (id, v) => { document.getElementById(id).textContent = v; };
+  const grid = st.gridImportKw, pv = st.pvKw, load = st.loadKw;
+  const dead = st.stale || grid === null || grid === undefined;
+
+  set('fGrid', dead ? '–' : fmt(Math.abs(grid)));
+  set('fPv', dead ? '–' : fmt(pv));
+  set('fLoad', dead ? '–' : fmt(load));
+
+  /* ต่ำกว่านี้ถือว่านิ่ง ไม่ต้องวิ่งให้ลายตา */
+  const MIN = 0.15;
+  const importing = !dead && grid > MIN;
+  const exporting = !dead && grid < -MIN;
+
+  /* เร็วสุด 0.45 วิ/รอบ ที่ 20 kW ขึ้นไป ช้าสุด 2.6 วิ/รอบ ตอนเกือบนิ่ง */
+  const speed = (kw) => Math.max(0.45, 2.6 - Math.min(20, Math.abs(kw)) * 0.108).toFixed(2) + 's';
+
+  const line = (id, on, dur, rev) => {
+    const el = document.getElementById(id);
+    el.classList.toggle('on', !!on);
+    el.classList.toggle('rev', !!rev);
+    if (on) el.style.animationDuration = dur;
+  };
+  line('flowG', importing, speed(grid), false);              /* การไฟฟ้า -> โหลด */
+  line('flowP', !dead && pv > MIN, speed(pv), false);        /* โซลาร์ -> โหลด */
+  line('flowX', exporting, speed(grid), true);               /* โซลาร์ -> การไฟฟ้า */
+
+  document.getElementById('nGrid').classList.toggle('act', importing || exporting);
+  document.getElementById('nPv').classList.toggle('act', !dead && pv > MIN);
+  document.getElementById('nLoad').classList.toggle('act', !dead && load > MIN);
+
+  document.getElementById('flowAge').textContent = dead ? '— ข้อมูลขาดการติดต่อ' : '';
+  document.getElementById('flowNote').innerHTML = dead
+    ? 'ยังไม่มีข้อมูลสด'
+    : exporting
+      ? 'กำลัง<b>ขายไฟออก</b> ' + fmt(Math.abs(grid)) + ' kW — โซลาร์ผลิตเกินที่โรงงานใช้'
+      : importing
+        ? 'โซลาร์แบกโหลดได้ ' + (st.coveragePct == null ? '–' : st.coveragePct) + '% ที่เหลือ '
+          + fmt(grid) + ' kW <b>ซื้อจากการไฟฟ้า</b> ≈ ' + baht(grid * (st.tariffNow || 4.65)) + ' บาท/ชม.'
+        : 'โซลาร์แบกโหลดได้ทั้งหมด ไม่ได้ซื้อไฟเลยตอนนี้';
+}
 
 function drawChart(samples){
   const c = document.getElementById('chart'), ctx = c.getContext('2d');
