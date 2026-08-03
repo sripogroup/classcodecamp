@@ -184,8 +184,9 @@ test('ข้อความรอบแรกต้องบอกตัวเ�
   const { events } = advance(emptyScheduleState(), hist, [[10, 30]], T1500);
   const m = buildMessage(events[0], cfg, T1500 + 10 * MIN);
   assert.match(m.telegram, /15:00/);
-  assert.match(m.telegram, /โหลดรวมก่อนถึงเวลา 30 kW/, 'ต้องบอกโหลดฐาน');
-  assert.match(m.telegram, /ตอนนี้ 30 kW/, 'ต้องบอกโหลดปัจจุบันเทียบกัน');
+  // กำลังไฟแสดงทศนิยม 3 ตำแหน่งตั้งแต่ 4 ส.ค. 2569 (พ่อเต้ยขอ)
+  assert.match(m.telegram, /โหลดรวมก่อนถึงเวลา 30\.000 kW/, 'ต้องบอกโหลดฐาน');
+  assert.match(m.telegram, /ตอนนี้ 30\.000 kW/, 'ต้องบอกโหลดปัจจุบันเทียบกัน');
   assert.ok(!/undefined|NaN/.test(m.telegram));
   assert.match(m.telegram, /\/done/);
 });

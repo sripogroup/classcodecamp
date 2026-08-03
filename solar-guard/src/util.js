@@ -109,6 +109,16 @@ export function isStaffHours(cfg, ts = Date.now()) {
 
 export const round1 = (n) => Math.round((Number(n) || 0) * 10) / 10;
 export const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+export const round3 = (n) => Math.round((Number(n) || 0) * 1000) / 1000;
+
+/**
+ * แสดงกำลังไฟเป็น kW ทศนิยม 3 ตำแหน่ง
+ *
+ * ทศนิยมตำแหน่งเดียวหยาบเกินไปตอนวัดโหลดทีละตัว: ไฟส่องสว่างออฟฟิศทั้งโซน
+ * วัดได้ 0.3 kW ซึ่งจริง ๆ อาจเป็น 0.25 หรือ 0.34 ก็ได้ ต่างกัน 40%
+ * อินเวอร์เตอร์ส่งค่ามาเป็นวัตต์อยู่แล้ว การปัดทิ้งคือการโยนข้อมูลจริงทิ้งเปล่า ๆ
+ */
+export const kw3 = (n) => (Number(n) || 0).toFixed(3);
 export const minutesBetween = (a, b) => Math.abs(a - b) / 60000;
 export const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
 

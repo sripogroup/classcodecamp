@@ -492,6 +492,9 @@ const HEADLINES = {
 };
 
 function fmt(n, d){ return n===null||n===undefined ? '–' : Number(n).toFixed(d===undefined?1:d); }
+/* กำลังไฟแสดง 3 ตำแหน่ง — ตอนวัดโหลดทีละตัวค่าต่างกันระดับ 0.05 kW มีความหมาย
+   ส่วน kWh กับเงินยังใช้ตำแหน่งเดียวเหมือนเดิม เพราะเป็นตัวเลขก้อนใหญ่ */
+function fkw(n){ return fmt(n, 3); }
 
 /* "1,234" — ใส่จุลภาคให้อ่านง่ายบนจอไกล ๆ ปัดเป็นจำนวนเต็มบาท */
 function baht(n){ return n===null||n===undefined ? '–' : Math.round(Number(n)).toLocaleString('th-TH'); }
@@ -525,9 +528,9 @@ function render(st, samples){
   document.getElementById('subline').textContent  = st.cause && level!=='green' && level!=='stale'
       ? HEADLINES[level][1] + ' — ' + st.cause : HEADLINES[level][1];
 
-  document.getElementById('grid').innerHTML = fmt(st.gridImportKw) + '<span class="unit">kW</span>';
-  document.getElementById('pv').innerHTML   = fmt(st.pvKw) + '<span class="unit">kW</span>';
-  document.getElementById('load').innerHTML = fmt(st.loadKw) + '<span class="unit">kW</span>';
+  document.getElementById('grid').innerHTML = fkw(st.gridImportKw) + '<span class="unit">kW</span>';
+  document.getElementById('pv').innerHTML   = fkw(st.pvKw) + '<span class="unit">kW</span>';
+  document.getElementById('load').innerHTML = fkw(st.loadKw) + '<span class="unit">kW</span>';
   const cov = st.coveragePct==null ? 0 : st.coveragePct;
   document.getElementById('cov').innerHTML  = fmt(cov,0) + '<span class="unit">%</span>';
   document.getElementById('covbar').style.width = Math.max(0,Math.min(100,cov)) + '%';
@@ -645,12 +648,12 @@ function render(st, samples){
   if (d) {
     wc.style.display = 'block';
     document.getElementById('wtime').textContent = d.elapsedMin + ' / ' + d.remainMin + ' นาที';
-    document.getElementById('wavg').textContent = fmt(d.avgSoFarKw) + ' kW';
+    document.getElementById('wavg').textContent = fkw(d.avgSoFarKw) + ' kW';
     const proj = document.getElementById('wproj');
-    proj.textContent = fmt(d.projectedKw) + ' kW';
+    proj.textContent = fkw(d.projectedKw) + ' kW';
     proj.className = 'wv' + (st.targets && d.projectedKw >= st.targets.actionKw ? ' alarm' : '');
     const allow = document.getElementById('wallow');
-    allow.textContent = d.blown ? 'เกินแล้ว' : fmt(Math.max(0, d.allowedRestKw)) + ' kW';
+    allow.textContent = d.blown ? 'เกินแล้ว' : fkw(Math.max(0, d.allowedRestKw)) + ' kW';
     allow.className = 'wv' + (d.blown ? ' alarm' : '');
   } else wc.style.display = 'none';
   document.getElementById('daypv').textContent = st.dayPvKwh ? 'วันนี้ผลิตแล้ว ' + fmt(st.dayPvKwh,0) + ' kWh' : '';
@@ -698,9 +701,9 @@ function drawFlow(st){
   const grid = st.gridImportKw, pv = st.pvKw, load = st.loadKw;
   const dead = st.stale || grid === null || grid === undefined;
 
-  set('fGrid', dead ? '–' : fmt(Math.abs(grid)));
-  set('fPv', dead ? '–' : fmt(pv));
-  set('fLoad', dead ? '–' : fmt(load));
+  set('fGrid', dead ? '–' : fkw(Math.abs(grid)));
+  set('fPv', dead ? '–' : fkw(pv));
+  set('fLoad', dead ? '–' : fkw(load));
 
   /* ต่ำกว่านี้ถือว่านิ่ง ไม่ต้องวิ่งให้ลายตา */
   const MIN = 0.15;
@@ -728,7 +731,7 @@ function drawFlow(st){
   document.getElementById('flowNote').innerHTML = dead
     ? 'ยังไม่มีข้อมูลสด'
     : exporting
-      ? 'กำลัง<b>ขายไฟออก</b> ' + fmt(Math.abs(grid)) + ' kW — โซลาร์ผลิตเกินที่โรงงานใช้'
+      ? 'กำลัง<b>ขายไฟออก</b> ' + fkw(Math.abs(grid)) + ' kW — โซลาร์ผลิตเกินที่โรงงานใช้'
       : importing
         ? 'โซลาร์แบกโหลดได้ ' + (st.coveragePct == null ? '–' : st.coveragePct) + '% ที่เหลือ '
           + fmt(grid) + ' kW <b>ซื้อจากการไฟฟ้า</b> ≈ ' + baht(grid * (st.tariffNow || 4.65)) + ' บาท/ชม.'

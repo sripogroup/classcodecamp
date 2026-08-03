@@ -27,7 +27,7 @@ import { buildDailySummary, buildMessage } from '../src/messages.js';
 
 import { dashboardHtml } from '../src/dashboard.js';
 import { viewState } from '../src/index.js';
-import { round1, thDateKey, hhmm, isStaffHours } from '../src/util.js';
+import { round1, round3, thDateKey, hhmm, isStaffHours } from '../src/util.js';
 import { loadLocalConfig } from './config-local.js';
 import { Store } from './store.js';
 import { Inverter } from './modbus.js';
@@ -119,9 +119,11 @@ async function processReading(reading, now = Date.now()) {
 
   const sample = {
     t: now,
-    pv: round1(reading.pv),
-    grid: round1(reading.grid),
-    load: round1(reading.load),
+    // เก็บ 3 ตำแหน่ง — อินเวอร์เตอร์ส่งมาเป็นวัตต์อยู่แล้ว การปัดเหลือ 1 ตำแหน่ง
+    // คือการโยนข้อมูลจริงทิ้ง แล้วพอไปวัดโหลดทีละตัว (0.3 kW) ก็หยาบเกินใช้งาน
+    pv: round3(reading.pv),
+    grid: round3(reading.grid),
+    load: round3(reading.load),
     bat: 0,
   };
 

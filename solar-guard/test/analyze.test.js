@@ -247,7 +247,7 @@ test('ข้อความแดงต้องมีตัวเลข kW เ�
   // เตือนตั้งแต่ตัวอย่างที่ 2 (35 kW) เพราะเกินเส้น "ณ ขณะนั้น" แล้ว
   // ข้อความจึงต้องอ้างค่าที่ทำให้เตือน ไม่ใช่ค่าล่าสุด
   const msg = buildMessage(out.allEvents.find((e) => e.type === 'alert'), cfg, NOON);
-  assert.match(msg.telegram, /35 kW/);
+  assert.match(msg.telegram, /35.000 kW/);
   assert.match(msg.telegram, /บาท\/ชั่วโมง/);
   assert.match(msg.telegram, /ให้ทำตามลำดับนี้/);
   assert.match(msg.telegram, /\/ack/);

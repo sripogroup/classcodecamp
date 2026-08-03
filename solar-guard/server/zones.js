@@ -544,7 +544,7 @@ export class Zones {
   /** ผลทุกครั้งของโซนหนึ่ง ใหม่ก่อน */
   history(slug) {
     const rows = this.db
-      .prepare("SELECT * FROM zone_tests WHERE zone = ? AND status = 'done' ORDER BY started_at DESC, id DESC")
+      .prepare("SELECT * FROM zone_tests WHERE zone = ? AND status = 'done' ORDER BY id DESC")
       .all(slug);
     return rows.map((r) => this._resultOf(r));
   }
@@ -563,8 +563,12 @@ export class Zones {
       //
       // ถ้าเอาครั้งล่าสุดดื้อ ๆ การกดวัดพลาดครั้งเดียว (ลืมเปิดเครื่อง กดจบเร็วไป)
       // จะลบค่าดีที่วัดมาอย่างดีทิ้งไปเลย ทั้งที่ยังอยู่ในฐานข้อมูลครบ
+      //
+      // เรียงตาม id (ลำดับที่บันทึก) ไม่ใช่ started_at (ช่วงเวลาที่วัด) — เวลาบันทึก
+      // ย้อนหลังเพื่อแก้ค่าที่เคยผิด ช่วงเวลาที่วัดจะเก่ากว่าของเดิมเสมอ ถ้าเรียงตาม
+      // นั้นก็จะได้ค่าผิดอันเดิมกลับมาทุกครั้ง ทั้งที่เพิ่งแก้ไปหมาด ๆ
       const rows = this.db
-        .prepare("SELECT * FROM zone_tests WHERE zone = ? AND status = 'done' ORDER BY started_at DESC, id DESC LIMIT 10")
+        .prepare("SELECT * FROM zone_tests WHERE zone = ? AND status = 'done' ORDER BY id DESC LIMIT 10")
         .all(z.slug);
       let pick = null;
       for (const row of rows) {

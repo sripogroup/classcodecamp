@@ -175,7 +175,7 @@ export function zonesHtml(cfg) {
 const $ = (id) => document.getElementById(id);
 let DATA = null, tick = null;
 
-const kw = (v) => (v === null || v === undefined ? '–' : v.toFixed(1) + ' kW');
+const kw = (v) => (v === null || v === undefined ? '–' : v.toFixed(3) + ' kW');
 const mmss = (s) => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
 
 function msg(text, kind) {
@@ -235,14 +235,14 @@ function render() {
     const warn = wsrc && wsrc.warnings && wsrc.warnings.length
       ? '<div class="warn">⚠ ' + wsrc.warnings.join('<br>⚠ ') + '</div>' : '';
     const val = m
-      ? '<div class="kw">' + m.steadyKw.toFixed(1) + '<small>เดินปกติ (พีค ' + m.peakKw.toFixed(1) + ')</small></div>'
+      ? '<div class="kw">' + m.steadyKw.toFixed(3) + '<small>เดินปกติ (พีค ' + m.peakKw.toFixed(3) + ')</small></div>'
       : '';
     const btn = d.running ? '' :
       '<button' + (f && !m ? ' class="go"' : '') + ' data-go="' + z.slug + '">' +
       (m ? 'วัดใหม่' : f ? 'วัดอีกครั้ง' : 'วัด') + '</button>';
     // ผลที่ระบบไม่รับ แต่คนอาจรู้ว่าถูกอยู่แล้ว (เช่นเปิดค้างมาทั้งวัน โหลดนิ่งแล้ว)
     const okBtn = f && f.steadyKw > 0
-      ? '<button class="stop" data-ok="' + f.id + '" style="width:auto;padding:10px 14px;font-size:14px">ใช้ค่า ' + f.steadyKw.toFixed(1) + ' kW นี้</button>'
+      ? '<button class="stop" data-ok="' + f.id + '" style="width:auto;padding:10px 14px;font-size:14px">ใช้ค่า ' + f.steadyKw.toFixed(3) + ' kW นี้</button>'
       : '';
     const tools = d.running ? '' :
       '<span class="tools"><button data-edit="' + z.slug + '" title="แก้">✏️</button>' +
@@ -257,7 +257,7 @@ function render() {
     b.onclick = async () => {
       try {
         const out = await api('/api/loads/confirm', { id: Number(b.dataset.ok) });
-        msg('รับค่าแล้ว: <b>' + out.result.name + '</b> = ' + out.result.steadyKw.toFixed(1) + ' kW');
+        msg('รับค่าแล้ว: <b>' + out.result.name + '</b> = ' + out.result.steadyKw.toFixed(3) + ' kW');
         await load();
       } catch (e) { msg(e.message, 'err'); }
     };
@@ -276,7 +276,7 @@ function render() {
   // ---- ลำดับการปิด (เลื่อนขึ้น/ลงได้) ----
   const rows = d.shedList.map((s, i) =>
     '<tr><td>' + (i + 1) + '. ' + s.name + (s.owner ? ' <span class="muted">— ' + s.owner + '</span>' : '') +
-    '</td><td class="n">−' + s.kw.toFixed(1) + ' kW</td>' +
+    '</td><td class="n">−' + s.kw.toFixed(3) + ' kW</td>' +
     '<td class="n shedrow-tools" style="width:1%">' +
     (i > 0 ? '<button data-mv="up" data-slug="' + s.slug + '" title="ปิดก่อนขึ้นอีกขั้น">↑</button>' : '') +
     (i < d.shedList.length - 1 ? '<button data-mv="down" data-slug="' + s.slug + '" title="ปิดทีหลังลงอีกขั้น">↓</button>' : '') +
@@ -306,15 +306,15 @@ function render() {
   // ---- เกณฑ์กลางคืน ----
   const ni = d.nightIdle;
   $('nightNote').innerHTML = ni
-    ? 'ตอนนี้เกณฑ์คือ <b>' + ni.kw.toFixed(1) + ' kW</b> = ไฟส่องสว่าง ' + ni.baselineKw.toFixed(1)
-      + ' + ของที่เปิดกลางคืนได้ ' + ni.nightAllowedKw.toFixed(1) + ' + เผื่อ ' + ni.marginKw
+    ? 'ตอนนี้เกณฑ์คือ <b>' + ni.kw.toFixed(3) + ' kW</b> = ไฟส่องสว่าง ' + ni.baselineKw.toFixed(3)
+      + ' + ของที่เปิดกลางคืนได้ ' + ni.nightAllowedKw.toFixed(3) + ' + เผื่อ ' + ni.marginKw
       + (ni.parts.length ? '<br>ของที่อนุญาต: ' + ni.parts.map((p) => p.name + ' ' + p.kw + ' kW').join(', ') : '')
       + '<br>กลางคืนถ้าโหลดเกินนี้ ระบบจะเตือนว่ามีอะไรเปิดค้าง'
     : 'ยังคิดเองไม่ได้ — ใช้ค่าจากไฟล์ตั้งค่า ' + (d.nightIdleConfigKw ?? '?') + ' kW '
       + '(วัดไฟส่องสว่างให้ครบก่อน ระบบถึงจะคิดเกณฑ์เองได้)';
 
   $('shedNote').innerHTML = d.shedList.length
-    ? 'ปิดครบทั้งหมดนี้ลดได้ <b>' + d.totalShedableKw.toFixed(1) + ' kW</b> — ' +
+    ? 'ปิดครบทั้งหมดนี้ลดได้ <b>' + d.totalShedableKw.toFixed(3) + ' kW</b> — ' +
       'เวลาไฟเกิน ระบบจะเลือกจากบนลงล่างให้พอดีกับส่วนที่เกิน แล้วส่งเข้า Telegram / LINE / อีเมล ' +
       'ไฟส่องสว่างไม่อยู่ในรายการนี้เพราะสั่งปิดไม่ได้'
     : 'เวลาไฟเกินตอนนี้ ระบบยังใช้รายการตัวอย่างที่เดาไว้ในโค้ด ซึ่งไม่ตรงกับของจริง';
@@ -399,7 +399,7 @@ $('btnStart').onclick = () => start($('pick').value);
 function paintStartHint() {
   const pre = $('fPre').checked;
   $('startHint').innerHTML = pre
-    ? 'เทียบกับ<b>เส้นฐานที่บันทึกไว้</b> (ไฟส่องสว่าง ' + (DATA && DATA.baselineKw !== null ? DATA.baselineKw.toFixed(1) + ' kW' : 'ยังไม่ได้วัด') + ') ' +
+    ? 'เทียบกับ<b>เส้นฐานที่บันทึกไว้</b> (ไฟส่องสว่าง ' + (DATA && DATA.baselineKw !== null ? DATA.baselineKw.toFixed(3) + ' kW' : 'ยังไม่ได้วัด') + ') ' +
       'ใช้เมื่อของเปิดค้างมานานแล้ว — ไม่ต้องรอครบเวลา เพราะไม่มีช่วงกินไฟสูงตอนสตาร์ทให้รอ'
     : 'กดตอนที่เพิ่งเปิดเครื่องเสร็จ ระบบจะเทียบกับ 90 วินาทีก่อนหน้าเป็นเส้นฐานให้เอง';
 }
@@ -420,8 +420,8 @@ $('btnStop').onclick = async () => {
   try {
     const out = await api('/api/loads/stop', {});
     const x = out.result;
-    msg('บันทึกแล้ว: <b>' + x.name + '</b> กินไฟ <b>' + x.steadyKw.toFixed(1) + ' kW</b> ' +
-        '(พีคตอนสตาร์ท ' + x.peakKw.toFixed(1) + ' kW) — ปิดโซนนี้ได้เลย ' +
+    msg('บันทึกแล้ว: <b>' + x.name + '</b> กินไฟ <b>' + x.steadyKw.toFixed(3) + ' kW</b> ' +
+        '(พีคตอนสตาร์ท ' + x.peakKw.toFixed(3) + ' kW) — ปิดโซนนี้ได้เลย ' +
         'รอโหลดนิ่งสัก 2 นาทีแล้วค่อยเปิดโซนถัดไป' +
         (x.warnings.length ? '<br>⚠ ' + x.warnings.join('<br>⚠ ') : ''));
     await load();

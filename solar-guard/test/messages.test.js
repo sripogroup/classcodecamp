@@ -68,15 +68,16 @@ console.log('\nเนื้อหาที่ขาดไม่ได้');
 test('demand_risk ต้องบอกเวลาที่เหลือ และเพดานที่ใช้ได้', () => {
   const m = buildMessage({ type: 'demand_risk', sample, window, headroom, actions }, cfg, NOW);
   assert.match(m.telegram, /7 นาที/, 'ต้องบอกว่าเหลือกี่นาที');
-  assert.match(m.telegram, /12 kW/, 'ต้องบอกว่าใช้ได้อีกไม่เกินเท่าไหร่');
+  assert.match(m.telegram, /12.000 kW/, 'ต้องบอกว่าใช้ได้อีกไม่เกินเท่าไหร่');
   assert.match(m.telegram, /12 เดือน/, 'ต้องย้ำผลที่ตามมา');
   assert.equal(m.toBoss, true, 'เรื่องนี้ต้องถึงหัวหน้าด้วย');
 });
 
 test('demand_newpeak ต้องบอกพีคและระยะที่เหลือ', () => {
   const m = buildMessage({ type: 'demand_newpeak', sample, window, headroom, closedWindow: { start: NOW, avgKw: 26.5 } }, cfg, NOW);
-  assert.match(m.telegram, /26\.5 kW/);
-  assert.match(m.telegram, /3\.5 kW/);
+  // กำลังไฟแสดงทศนิยม 3 ตำแหน่งตั้งแต่ 4 ส.ค. 2569 (พ่อเต้ยขอ)
+  assert.match(m.telegram, /26\.500 kW/);
+  assert.match(m.telegram, /3\.500 kW/);
   assert.equal(m.priority, 'normal');
 });
 
