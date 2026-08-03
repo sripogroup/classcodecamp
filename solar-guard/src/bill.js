@@ -165,7 +165,15 @@ function closeWindow(b, cfg) {
  * @param scope 'month' คิดครบทุกรายการ | 'day' คิดเฉพาะค่าพลังงาน
  *              (ค่า demand กับค่าบริการเป็นรายเดือน หารเป็นรายวันไม่ได้)
  */
-export function billView(b, cfg, scope = 'month') {
+/**
+ * @param knownPeakKw พีค 15 นาทีของเดือนที่ระบบรู้จากทางอื่น (ตัวติดตาม demand)
+ *
+ * มีเพราะตัวคิดค่าไฟเริ่มนับตอนที่มันถูกเปิดใช้ ส่วนตัวติดตาม demand มีข้อมูล
+ * ตั้งแต่ต้นเดือน — เดือนที่ย้ายระบบกลางคัน ตัวคิดเงินจะไม่เห็นพีคที่เกิดก่อนหน้า
+ * แล้วบอกค่าไฟต่ำกว่าจริงหลายร้อยบาท ซึ่งอันตรายกว่าบอกสูงเกิน เพราะทำให้
+ * ชะล่าใจว่ายังไม่ชนเพดาน (เจอจริง 4 ส.ค. 69: บิลใช้ 10.4 kW ทั้งที่พีคจริง 13.4)
+ */
+export function billView(b, cfg, scope = 'month', knownPeakKw = 0, knownPeakAt = 0) {
   const src = scope === 'day' ? b.day : b.month;
   const onPeakKwh = src.onPeakKwh || 0;
   const offPeakKwh = src.offPeakKwh || 0;
@@ -175,7 +183,12 @@ export function billView(b, cfg, scope = 'month') {
   const energyOff = offPeakKwh * cfg.tariffBaseOffPeak;
   const energy = energyOn + energyOff;
   const ft = totalKwh * cfg.ftPerKwh;
-  const demandKw = scope === 'month' ? b.month.demandKw || 0 : 0;
+  const ownDemandKw = b.month.demandKw || 0;
+  const useKnown = scope === 'month' && (Number(knownPeakKw) || 0) > ownDemandKw;
+  const demandKw = scope === 'month' ? Math.max(ownDemandKw, Number(knownPeakKw) || 0) : 0;
+  // เวลาต้องมาคู่กับค่าเสมอ ถ้าใช้พีคจากตัวติดตามก็ต้องใช้เวลาของตัวนั้นด้วย
+  // ไม่งั้นหน้าจอจะบอกว่า "13.3 kW เมื่อ 3 ส.ค. 15:15" ทั้งที่ 13.3 เกิดวันที่ 1
+  const demandAtOut = scope !== 'month' ? 0 : (useKnown ? (Number(knownPeakAt) || 0) : (b.month.demandAt || 0));
   const demand = demandKw * cfg.demandChargePerKw;
   const service = scope === 'month' ? cfg.serviceCharge : 0;
 
@@ -188,7 +201,7 @@ export function billView(b, cfg, scope = 'month') {
     offPeakKwh: r2(offPeakKwh),
     totalKwh: r2(totalKwh),
     demandKw: r2(demandKw),
-    demandAt: scope === 'month' ? b.month.demandAt || 0 : 0,
+    demandAt: demandAtOut,
     energyBaht: r2(energy),
     energyOnBaht: r2(energyOn),
     energyOffBaht: r2(energyOff),

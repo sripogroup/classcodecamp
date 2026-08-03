@@ -8,7 +8,7 @@
  *   4. ทุกข้อความต้องบอกว่า "ให้ไปปิดอะไร" ไม่ใช่แค่บอกว่ามีปัญหา
  */
 
-import { isEveningWatch, isNight, isPeakSun, isWorkTime, minutesBetween, round1 } from './util.js';
+import { isEveningWatch, isNight, isPeakSun, isWorkTime, minutesBetween, round1, thDateKey } from './util.js';
 
 export const LEVELS = { GREEN: 'green', YELLOW: 'yellow', RED: 'red' };
 const RANK = { green: 0, yellow: 1, red: 2 };
@@ -327,6 +327,13 @@ export function evaluate(prevState, sample, cfg, now = Date.now()) {
   const dayAgo = now - 26 * 60 * 60 * 1000;
   state.samples = state.samples.filter((s) => s.t >= dayAgo).slice(-cfg.sampleMax);
 
+  // สูงสุด "ของวันนี้" ต้องเริ่มนับใหม่เมื่อข้ามเที่ยงคืนของวันไทย
+  //
+  // เดิมรีเซ็ตตอนส่งสรุปประจำวันเท่านั้น ซึ่งทำงานเฉพาะบนคลาวด์ พอสมองย้ายมา
+  // อยู่ที่เครื่องในโรงงาน ค่านี้เลยค้างข้ามวัน — ตีสองของวันใหม่หน้าจอยังบอกว่า
+  // "ดึงไฟหลวงสูงสุดวันนี้ 13.5 kW" ทั้งที่เป็นของเมื่อวาน (เจอจริง 4 ส.ค. 69)
+  const peakDay = state.peakToday?.at ? thDateKey(state.peakToday.at) : null;
+  if (peakDay && peakDay !== thDateKey(now)) state.peakToday = { kw: 0, at: 0 };
   if (grid > (state.peakToday?.kw || 0)) state.peakToday = { kw: grid, at: now };
   state.lastOkAt = now;
   state.lastError = null;

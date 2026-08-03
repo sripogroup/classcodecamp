@@ -1072,8 +1072,13 @@ export function viewState(state, cfg) {
         : null,
 
     // ค่าไฟจริงตามโครงสร้างบิล PEA — เดือนนี้คิดครบทุกรายการ วันนี้คิดเฉพาะค่าพลังงาน
+    // ส่งพีคที่ตัวติดตาม demand รู้เข้าไปด้วย เผื่อตัวคิดเงินเพิ่งเริ่มนับกลางเดือน
+    // แล้วมองไม่เห็นพีคที่เกิดก่อนหน้า (ดูเหตุผลเต็มใน billView)
     bill: state.bill
-      ? { month: billView(state.bill, cfg, 'month'), day: billView(state.bill, cfg, 'day') }
+      ? {
+          month: billView(state.bill, cfg, 'month', headroom.peakKw || 0, headroom.peakAt || 0),
+          day: billView(state.bill, cfg, 'day'),
+        }
       : null,
 
     todayPeakKw: r(demand.todayPeakKw || 0),

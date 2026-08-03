@@ -653,7 +653,13 @@ function render(st, samples){
     proj.textContent = fkw(d.projectedKw) + ' kW';
     proj.className = 'wv' + (st.targets && d.projectedKw >= st.targets.actionKw ? ' alarm' : '');
     const allow = document.getElementById('wallow');
-    allow.textContent = d.blown ? 'เกินแล้ว' : fkw(Math.max(0, d.allowedRestKw)) + ' kW';
+    /* ถ้าเวลาที่เหลือใช้ได้มากกว่าเพดานของทั้งเดือน แปลว่าหน้าต่างนี้ไม่มีทางเกิน
+       ต่อให้เปิดทุกอย่างพร้อมกัน — โชว์ตัวเลขอย่าง "39.700 kW" ในไซต์ที่พีค
+       สูงสุดเคยแค่ 26 kW ทำให้คนอ่านนึกว่าระบบคำนวณพัง ทั้งที่เลขถูกทางคณิตศาสตร์ */
+    const cap = (st.month && st.month.limitKw) || 0;
+    allow.textContent = d.blown ? 'เกินแล้ว'
+      : (cap && d.allowedRestKw > cap) ? 'ใช้ได้เต็มที่'
+      : fkw(Math.max(0, d.allowedRestKw)) + ' kW';
     allow.className = 'wv' + (d.blown ? ' alarm' : '');
   } else wc.style.display = 'none';
   document.getElementById('daypv').textContent = st.dayPvKwh ? 'วันนี้ผลิตแล้ว ' + fmt(st.dayPvKwh,0) + ' kWh' : '';

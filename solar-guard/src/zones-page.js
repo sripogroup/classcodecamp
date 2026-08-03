@@ -100,8 +100,8 @@ export function zonesHtml(cfg) {
   <div class="card">
     <div class="now">
       <div><div class="l">โหลดตอนนี้</div><div class="v load" id="nLoad">–</div></div>
-      <div><div class="l">เส้นฐาน (ไฟส่องสว่าง)</div><div class="v base" id="nBase">–</div></div>
-      <div><div class="l">ส่วนที่เกินฐาน</div><div class="v delta" id="nDelta">–</div></div>
+      <div><div class="l">เส้นฐาน (ของที่เปิดค้าง)</div><div class="v base" id="nBase">–</div></div>
+      <div><div class="l" id="nDeltaLabel">ส่วนที่เกินฐาน</div><div class="v delta" id="nDelta">–</div></div>
     </div>
   </div>
 
@@ -205,7 +205,16 @@ function render() {
   const loadKw = d.state?.loadKw ?? null;
   $('nLoad').textContent = kw(loadKw);
   $('nBase').textContent = kw(d.baselineKw);
-  $('nDelta').textContent = (loadKw !== null && d.baselineKw !== null) ? kw(Math.max(0, loadKw - d.baselineKw)) : '–';
+  /* ต่ำกว่าเส้นฐานเป็นเรื่องปกติตอนนอกเวลางาน (ไฟส่องสว่างปิดหมด) การบังคับให้
+     เป็นศูนย์ทำให้ดูเหมือนระบบไม่ทำงาน ต้องบอกตรง ๆ ว่าตอนนี้ต่ำกว่าฐานอยู่เท่าไร */
+  if (loadKw === null || d.baselineKw === null) {
+    $('nDelta').textContent = '–';
+    $('nDeltaLabel').textContent = 'ส่วนที่เกินฐาน';
+  } else {
+    const diff = loadKw - d.baselineKw;
+    $('nDelta').textContent = kw(Math.abs(diff));
+    $('nDeltaLabel').textContent = diff >= 0 ? 'ส่วนที่เกินฐาน' : 'ต่ำกว่าฐาน (ปิดของบางส่วน)';
+  }
 
   // ---- กล่องกำลังวัด ----
   const r = d.running;
@@ -269,9 +278,12 @@ function render() {
   $('pick').innerHTML = d.zones.map((z) =>
     '<option value="' + z.slug + '"' + (d.nextSuggestion && d.nextSuggestion.slug === z.slug ? ' selected' : '') + '>' +
     z.name + ' — เปิดค้าง ' + z.minutes + ' นาที' + (z.measured ? ' (วัดแล้ว)' : '') + '</option>').join('');
+  /* นับให้ตรงกับที่ตาเห็น — ของเดิมนับเฉพาะโซนที่ปิดได้ เลยขึ้นว่า "วัดแล้ว 0"
+     ทั้งที่ในรายการมีติ๊กถูกอยู่ 3 อัน ซึ่งอ่านแล้วนึกว่าระบบไม่ได้บันทึก */
+  const doneAll = d.zones.filter((z) => z.measured).length;
   $('nextHint').textContent = d.nextSuggestion
-    ? 'วัดแล้ว ' + d.doneCount + ' จาก ' + d.totalCount + ' โซน — ถัดไปที่แนะนำ: ' + d.nextSuggestion.name
-    : 'วัดครบทุกโซนแล้ว ' + d.doneCount + '/' + d.totalCount;
+    ? 'วัดแล้ว ' + doneAll + ' จาก ' + d.zones.length + ' โซน — ถัดไปที่แนะนำ: ' + d.nextSuggestion.name
+    : 'วัดครบทุกโซนแล้ว ' + doneAll + '/' + d.zones.length;
 
   // ---- ลำดับการปิด (เลื่อนขึ้น/ลงได้) ----
   const rows = d.shedList.map((s, i) =>
