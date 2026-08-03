@@ -90,9 +90,27 @@ export function loadConfig(env = {}) {
     sunEndHour: num(env.SUN_END_HOUR, 15),
 
     // ---------- ค่าไฟ (ไว้คำนวณเงินที่เสียไป) ----------
+    // สองตัวนี้เป็นราคา "รวม Ft และ VAT แล้ว" ใช้ในข้อความเตือนเพื่อบอกคร่าว ๆ ว่า
+    // ตอนนี้เสียเงินชั่วโมงละเท่าไหร่ — ไม่ได้ใช้คิดบิล (บิลใช้ชุดข้างล่าง)
     tariffOnPeak: num(env.TARIFF_ON_PEAK, 4.5), // บาท/kWh
     tariffOffPeak: num(env.TARIFF_OFF_PEAK, 2.8),
     useTou: bool(env.USE_TOU, false), // ถ้าใช้อัตรา TOU ให้เปิด
+
+    // ---------- โครงสร้างบิล PEA (ใช้คิดค่าไฟจริงใน src/bill.js) ----------
+    // ค่าเริ่มต้นทั้งหมดถอดมาจากบิลจริงเลขที่ 871006112454 รอบ 07/2569
+    // อัตรา TOU แรงดัน 22-33 kV — ถ้าการไฟฟ้าปรับอัตรา ให้แก้ที่ตัวแปรบน Cloudflare
+    tariffBaseOnPeak: num(env.TARIFF_BASE_ON_PEAK, 4.1839), // บาท/kWh ก่อน Ft และ VAT
+    tariffBaseOffPeak: num(env.TARIFF_BASE_OFF_PEAK, 2.6037),
+    // ค่าความต้องการพลังไฟฟ้า คิดจากค่าเฉลี่ย 15 นาทีสูงสุดของเดือน **เฉพาะช่วง on-peak**
+    // ตัวนี้คือเหตุผลทางการเงินทั้งหมดของระบบนี้ — กดพีคลง 1 kW = ประหยัดเท่านี้ต่อเดือน
+    demandChargePerKw: num(env.DEMAND_CHARGE_PER_KW, 132.93),
+    serviceCharge: num(env.SERVICE_CHARGE, 312.24), // ค่าบริการรายเดือน (คงที่)
+    ftPerKwh: num(env.FT_PER_KWH, 0.1623), // Ft งวด ก.ค.69-ธ.ค.69 — ต้องอัปเดตทุก 4 เดือน
+    vatPct: num(env.VAT_PCT, 7),
+    // ขาดข้อมูลเกินกี่นาทีถือว่าเดาไม่ได้ ให้ข้ามช่วงนั้นแทนที่จะเดามั่ว
+    billMaxGapMin: num(env.BILL_MAX_GAP_MIN, 15),
+    // หน้าต่าง 15 นาทีต้องมีข้อมูลอย่างน้อยกี่นาทีถึงจะเอาไปคิดค่า demand ได้
+    billMinWindowMin: num(env.BILL_MIN_WINDOW_MIN, 5),
     // ส่วนต่างค่าไฟต่อเดือนถ้าโดนย้ายไปประเภทที่ 3 (ใช้บอกว่า "พลาดครั้งเดียวเสียเท่าไหร่")
     tierPenaltyPerMonth: num(env.TIER_PENALTY_PER_MONTH, 3000),
 

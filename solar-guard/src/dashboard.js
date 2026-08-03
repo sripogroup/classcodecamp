@@ -60,6 +60,17 @@ export function dashboardHtml(cfg, token) {
   .wv{font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:4px}
   .wv.alarm{color:#ef4444}
   #monthCard{margin-top:16px}
+  #billCard{margin-top:16px}
+  .billtop{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px;margin-top:6px}
+  .bigbaht{font-size:38px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.15;color:#f8fafc}
+  .bigbaht .cur{font-size:19px;color:#94a3b8;font-weight:600;margin-left:6px}
+  .bigbaht.month{color:#f59e0b}
+  .brk{width:100%;border-collapse:collapse;margin-top:16px}
+  .brk td{padding:9px 0;border-bottom:1px solid #1e293b26;font-size:15px;color:#94a3b8}
+  .brk td:last-child{text-align:right;font-variant-numeric:tabular-nums;color:#cbd5e1;font-size:16px;white-space:nowrap}
+  .brk tr.sum td{border-top:1px solid #334155;border-bottom:none;padding-top:12px;color:#f8fafc;font-weight:700;font-size:18px}
+  .brk tr.sum td:last-child{color:#f59e0b;font-size:20px}
+  .brk small{color:#64748b;font-size:12px}
   .peaks{width:100%;border-collapse:collapse;margin-top:12px}
   .peaks th{font-size:13px;color:#64748b;font-weight:600;text-align:left;padding:0 10px 8px 0;border-bottom:1px solid #1e293b}
   .peaks th:nth-child(2),.peaks td:nth-child(2){text-align:right;white-space:nowrap}
@@ -144,6 +155,32 @@ export function dashboardHtml(cfg, token) {
       <div class="value" id="cov">–<span class="unit">%</span></div>
       <div class="bar"><span id="covbar" style="width:0%"></span></div>
     </div>
+  </div>
+
+  <div class="card" id="billCard" style="display:none">
+    <div class="label">💰 ค่าไฟ <span style="color:#64748b">— ประมาณการจากที่ระบบวัดได้เอง ไม่ใช่บิลจริง</span></div>
+    <div class="billtop">
+      <div>
+        <div class="label">วันนี้ <small style="color:#64748b">(เฉพาะค่าพลังงาน)</small></div>
+        <div class="bigbaht"><span id="billDay">–</span><span class="cur">บาท</span></div>
+        <div class="label" id="billDaySub" style="margin-top:6px"></div>
+      </div>
+      <div>
+        <div class="label">เดือนนี้ <small style="color:#64748b">(รวมทุกรายการ)</small></div>
+        <div class="bigbaht month"><span id="billMonth">–</span><span class="cur">บาท</span></div>
+        <div class="label" id="billMonthSub" style="margin-top:6px"></div>
+      </div>
+    </div>
+    <table class="brk">
+      <tr><td>ค่าพลังงาน ช่วง Peak <small id="brkOnKwh"></small></td><td id="brkOn">–</td></tr>
+      <tr><td>ค่าพลังงาน ช่วง Off Peak <small id="brkOffKwh"></small></td><td id="brkOff">–</td></tr>
+      <tr><td>ค่า Ft</td><td id="brkFt">–</td></tr>
+      <tr><td>ค่าความต้องการพลังไฟฟ้า <small id="brkDemandKw"></small></td><td id="brkDemand">–</td></tr>
+      <tr><td>ค่าบริการรายเดือน</td><td id="brkService">–</td></tr>
+      <tr><td>ภาษีมูลค่าเพิ่ม 7%</td><td id="brkVat">–</td></tr>
+      <tr class="sum"><td>รวมค่าไฟเดือนนี้</td><td id="brkTotal">–</td></tr>
+    </table>
+    <div class="label" id="billNote" style="margin-top:12px"></div>
   </div>
 
   <div class="card" id="shedCard" style="display:none;margin-top:16px;border-color:#7c3aed">
@@ -251,6 +288,9 @@ const HEADLINES = {
 
 function fmt(n, d){ return n===null||n===undefined ? '–' : Number(n).toFixed(d===undefined?1:d); }
 
+/* "1,234" — ใส่จุลภาคให้อ่านง่ายบนจอไกล ๆ ปัดเป็นจำนวนเต็มบาท */
+function baht(n){ return n===null||n===undefined ? '–' : Math.round(Number(n)).toLocaleString('th-TH'); }
+
 /* "3 ส.ค. 13:45" — บวก 7 ชม.เอง ไม่พึ่งเวลาเครื่อง เพราะจอติดผนังบางเครื่องตั้งโซนผิด */
 const TH_MON = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
 function thWhen(ts){
@@ -302,6 +342,36 @@ function render(st, samples){
     document.getElementById('mnote').textContent = m.breached
       ? '🛑 เดือนนี้เกินเพดานไปแล้ว — เริ่มนับใหม่เดือนหน้า'
       : 'ใช้ไปแล้ว ' + m.usedPct + '% ของเพดาน • เกิน ' + m.limitKw + ' kW แม้ครั้งเดียว = ค่าไฟประเภทที่ 3 นาน 12 เดือน';
+  }
+
+  /* ---- ค่าไฟวันนี้ / เดือนนี้ ---- */
+  const bc = document.getElementById('billCard');
+  const bl = st.bill;
+  if (bl && bl.month) {
+    bc.style.display = 'block';
+    const set = (id, v) => { document.getElementById(id).textContent = v; };
+    set('billDay', baht(bl.day.totalBaht));
+    set('billMonth', baht(bl.month.totalBaht));
+    set('billDaySub', 'ซื้อไฟ ' + fmt(bl.day.totalKwh) + ' kWh');
+    set('billMonthSub', 'ซื้อไฟ ' + fmt(bl.month.totalKwh) + ' kWh');
+    set('brkOnKwh', '(' + fmt(bl.month.onPeakKwh) + ' kWh)');
+    set('brkOffKwh', '(' + fmt(bl.month.offPeakKwh) + ' kWh)');
+    set('brkOn', baht(bl.month.energyOnBaht));
+    set('brkOff', baht(bl.month.energyOffBaht));
+    set('brkFt', baht(bl.month.ftBaht));
+    set('brkDemandKw', '(' + fmt(bl.month.demandKw) + ' kW' + (bl.month.demandAt ? ' เมื่อ ' + thWhen(bl.month.demandAt) : '') + ')');
+    set('brkDemand', baht(bl.month.demandBaht));
+    set('brkService', baht(bl.month.serviceBaht));
+    set('brkVat', baht(bl.month.vatBaht));
+    set('brkTotal', baht(bl.month.totalBaht) + ' บาท');
+    /* ข้อมูลขาดช่วง = ตัวเลขต่ำกว่าจริงเสมอ ต้องบอกให้รู้ ไม่ใช่โชว์เฉย ๆ */
+    const miss = bl.month.missedMin;
+    document.getElementById('billNote').innerHTML =
+      'เริ่มนับตั้งแต่ ' + thWhen(bl.month.since) + ' น.'
+      + (miss > 5 ? ' • <b style="color:#f59e0b">ข้อมูลขาดไป ' + Math.round(miss) + ' นาที ตัวเลขจริงสูงกว่านี้</b>' : '')
+      + ' • กดพีคช่วง Peak ลงได้ 1 kW = ประหยัด ' + baht(bl.month.perKwBaht) + ' บาท/เดือน';
+  } else {
+    bc.style.display = 'none';
   }
 
   /* ---- สูงสุดของเดือน แยกทีละสาย พร้อมวันเวลาที่เกิด ---- */

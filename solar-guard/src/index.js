@@ -10,6 +10,7 @@
 import { loadConfig } from './config.js';
 import { FusionSolar } from './fusionsolar.js';
 import { emptyState, evaluate, evaluateDemand, pickActions } from './analyze.js';
+import { billView, feedBill } from './bill.js';
 import { emptyDemand, feedDemand, monthHeadroom, monthKey, windowView } from './demand.js';
 import { decideShed, desiredMap, emptyShedState } from './autoshed.js';
 import { checkSchedule, emptyScheduleState } from './schedule.js';
@@ -343,10 +344,14 @@ async function poll(env, cfg, injected = null) {
   const demandRes = feedDemand(prev.demand || emptyDemand(), now, sample.grid, cfg);
   const headroom = monthHeadroom(demandRes.demand, cfg, demandRes.window.projectedKw);
 
+  // ---- 1.5) สะสมพลังงานไว้คิดค่าไฟจริงตามโครงสร้างบิล PEA ----
+  const bill = feedBill(prev.bill, now, sample.grid, cfg);
+
   // ---- 2) สายที่หนึ่ง: เตือนคนเรื่องค่าไฟ (มีการหน่วงเวลากันเตือนหลอก) ----
   const { state, events, cause, demand15, actions } = evaluate(prev, sample, cfg, now);
   state.demand = demandRes.demand;
   state.monthPeaks = mp;
+  state.bill = bill;
   state.dayPvKwh = reading.dayPvKwh;
   state.cause = cause.text;
   state.actions = actions;
@@ -682,6 +687,11 @@ async function publicState(env, cfg) {
             pvAt: state.monthPeaks.pvAt || 0,
           }
         : null,
+
+    // ค่าไฟจริงตามโครงสร้างบิล PEA — เดือนนี้คิดครบทุกรายการ วันนี้คิดเฉพาะค่าพลังงาน
+    bill: state.bill
+      ? { month: billView(state.bill, cfg, 'month'), day: billView(state.bill, cfg, 'day') }
+      : null,
 
     todayPeakKw: r(demand.todayPeakKw || 0),
     autoshed: {
