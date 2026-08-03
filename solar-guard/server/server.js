@@ -27,7 +27,7 @@ import { buildDailySummary, buildMessage } from '../src/messages.js';
 
 import { dashboardHtml } from '../src/dashboard.js';
 import { viewState } from '../src/index.js';
-import { round1, thDateKey, hhmm } from '../src/util.js';
+import { round1, thDateKey, hhmm, isStaffHours } from '../src/util.js';
 import { loadLocalConfig } from './config-local.js';
 import { Store } from './store.js';
 import { Inverter } from './modbus.js';
@@ -79,7 +79,19 @@ const log = (msg, level = 'INFO') => {
   else console.log(line);
 };
 
-const relay = makeRelay(cfg, log);
+const rawRelay = makeRelay(cfg, log);
+
+/**
+ * ส่งข้อความ โดยเคารพเวลาพักของพนักงาน
+ *
+ * นอกเวลางาน (ค่าเริ่มต้นหลัง 19:00 ถึง 08:00) ข้อความจะไปหาหัวหน้าคนเดียว
+ * ไม่เข้ากลุ่ม — ไม่ได้เงียบ เพราะช่วง on-peak ยาวถึง 22:00 พีคที่เกิดตอน
+ * สองทุ่มก็แพงเท่าพีคตอนบ่าย แต่คนที่ควรถูกปลุกคือคนที่สั่งปิดอะไรได้
+ */
+async function relay(text, opts = {}) {
+  const staffTime = isStaffHours(cfg);
+  return rawRelay(text, { ...opts, bossOnly: !staffTime, toBoss: opts.toBoss || !staffTime });
+}
 
 /* ------------------------------------------------------------------ วงจรหลัก */
 

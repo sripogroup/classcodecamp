@@ -43,12 +43,15 @@ function parseTargets(value) {
     .filter(Boolean);
 }
 
-export async function sendLine(cfg, text, { toBoss = false } = {}) {
+/** bossOnly = ส่งหาหัวหน้าคนเดียว ไม่เข้ากลุ่มพนักงาน (ใช้นอกเวลางาน) */
+export async function sendLine(cfg, text, { toBoss = false, bossOnly = false } = {}) {
   if (!cfg.lineToken) return { ok: false, skipped: 'ยังไม่ได้ตั้ง LINE_CHANNEL_TOKEN' };
 
-  const targets = parseTargets(cfg.lineTo);
-  if (toBoss) {
-    for (const id of parseTargets(cfg.lineBossTo)) {
+  const bossIds = parseTargets(cfg.lineBossTo);
+  // ไม่มีปลายทางของหัวหน้า = ส่งเข้ากลุ่มตามเดิม ดีกว่าเงียบหายไปทั้งข้อความ
+  const targets = bossOnly && bossIds.length ? [...bossIds] : parseTargets(cfg.lineTo);
+  if (!bossOnly && toBoss) {
+    for (const id of bossIds) {
       if (!targets.includes(id)) targets.push(id);
     }
   }

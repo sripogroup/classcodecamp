@@ -92,6 +92,21 @@ export function isEveningWatch(cfg, ts = Date.now()) {
   return thTime(ts).hour >= cfg.eveningWatchHour;
 }
 
+/**
+ * อยู่ในเวลาที่ยอมให้รบกวนกลุ่มพนักงานไหม (ค่าเริ่มต้น 08:00–19:00)
+ *
+ * นอกช่วงนี้ระบบยังทำงานและยังส่งข้อความเหมือนเดิมทุกอย่าง เปลี่ยนแค่ปลายทาง
+ * เป็นหัวหน้าคนเดียว การเงียบสนิทไม่ใช่ทางเลือก เพราะช่วง on-peak ยาวถึง 22:00
+ * พีคที่เกิดตอนสองทุ่มคิดเงินเท่าพีคตอนบ่ายทุกบาท
+ */
+export function isStaffHours(cfg, ts = Date.now()) {
+  const h = thTime(ts).hour;
+  const a = cfg.staffHourStart ?? 8;
+  const b = cfg.staffHourEnd ?? 19;
+  if (a === b) return true; // ตั้งเท่ากัน = ไม่จำกัดเวลา
+  return a < b ? h >= a && h < b : h >= a || h < b;
+}
+
 export const round1 = (n) => Math.round((Number(n) || 0) * 10) / 10;
 export const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 export const minutesBetween = (a, b) => Math.abs(a - b) / 60000;

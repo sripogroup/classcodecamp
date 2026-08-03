@@ -21,7 +21,7 @@ import { setTelegramWebhook } from './notify/telegram.js';
 import { sendChat } from './notify/chat.js';
 import { sendEmail } from './notify/email.js';
 import { dashboardHtml } from './dashboard.js';
-import { hhmm, isQuietHours, minutesBetween, round1, thDateKey, thWhen } from './util.js';
+import { hhmm, isQuietHours, isStaffHours, minutesBetween, round1, thDateKey, thWhen } from './util.js';
 
 const STATE_KEY = 'state';
 const STALE_MINUTES = 20; // ไม่ได้ข้อมูลนานเกินนี้ = ถือว่าระบบเงียบ
@@ -225,7 +225,11 @@ export default {
         const text = String(body.text || '').slice(0, 4000);
         if (!text) return json({ ok: false, error: 'ต้องส่ง text' }, 400);
 
-        const chat = await sendChat(cfg, text, { toBoss: !!body.toBoss, silent: !!body.silent });
+        const chat = await sendChat(cfg, text, {
+          toBoss: !!body.toBoss,
+          silent: !!body.silent,
+          bossOnly: !!body.bossOnly, // นอกเวลางาน: หัวหน้าคนเดียว ไม่กวนกลุ่มพนักงาน
+        });
         let mail = { skipped: 'ไม่ได้ขอให้ส่งอีเมล' };
         if (body.emailSubject) mail = await sendEmail(cfg, String(body.emailSubject), String(body.emailHtml || text));
         return json({ ok: true, chat, email: mail });
@@ -617,7 +621,13 @@ async function poll(env, cfg, injected = null) {
   for (const ev of allEvents) {
     const msg = buildMessage(ev, cfg, now);
     if (!msg) continue;
-    const tg = await sendChat(cfg, msg.telegram, { toBoss: !!msg.toBoss, silent: msg.priority === 'low' });
+    // นอกเวลางาน ส่งหาหัวหน้าคนเดียว ไม่กวนกลุ่มพนักงาน (ดู isStaffHours)
+    const offHours = !isStaffHours(cfg, now);
+    const tg = await sendChat(cfg, msg.telegram, {
+      toBoss: !!msg.toBoss || offHours,
+      silent: msg.priority === 'low',
+      bossOnly: offHours,
+    });
     let mail = { skipped: 'ไม่ส่งอีเมลสำหรับเหตุการณ์นี้' };
     // อีเมลเก็บไว้เฉพาะเรื่องใหญ่ ไม่งั้นคนจะชินแล้วเลิกอ่าน
     if (msg.priority === 'high' && msg.emailSubject) mail = await sendEmail(cfg, msg.emailSubject, msg.emailHtml);
@@ -674,6 +684,7 @@ async function checkLocalAlive(env, cfg) {
       `ไม่ได้รับสัญญาณมา ${Math.round(quietMin)} นาที (ค่าล่าสุดเมื่อ ${hhmm(hb.at)} น.)\n\n` +
       `ให้ไปเช็คว่าคอมเปิดอยู่ไหม / โปรแกรมยังรันอยู่หรือเปล่า\n\n` +
       `<i>ตอนนี้ไม่มีใครเฝ้าเพดาน ${cfg.demandLimitKw} kW ให้แล้ว ต้องเฝ้าเองไปก่อนครับ</i>`,
+    { bossOnly: !isStaffHours(cfg), toBoss: true },
   );
   return { ok: false, quietMin, alerted: true };
 }
@@ -694,6 +705,7 @@ async function checkPushHealth(env, cfg) {
       (last ? `ข้อมูลล่าสุดเมื่อ ${hhmm(last.t)} น. (${Math.round(quietMin)} นาทีที่แล้ว)` : 'ยังไม่เคยได้รับข้อมูลเลย') +
       `\n\nให้ช่างเช็ค: อุปกรณ์ยังมีไฟไหม / ต่อ WiFi ได้ไหม / สาย RS485 หลุดหรือเปล่า` +
       `\n\n<i>ช่วงนี้ระบบเฝ้าเรื่องเพดาน ${cfg.demandLimitKw} kW ให้ไม่ได้ ต้องเฝ้าเองไปก่อน</i>`,
+    { bossOnly: !isStaffHours(cfg, now), toBoss: true },
   );
   return { ok: false, quietMin, alerted: true };
 }
@@ -813,6 +825,36 @@ async function handleTelegramWebhook(request, env, cfg) {
     return json({ ok: true });
   }
 
+  /**
+   * /id — บอกเลขห้องแชทนี้ ตอบกลับเข้าห้องเดิมโดยตรง ไม่ผ่าน sendChat
+   *
+   * มีไว้ตั้ง TELEGRAM_BOSS_CHAT_ID (ห้องส่วนตัวของหัวหน้า ใช้ส่งเรื่องนอกเวลางาน)
+   * ซึ่งไม่มีทางรู้เลขนี้จากที่ไหนอีก Telegram ไม่มีหน้าจอให้ดู ต้องถามบอทเท่านั้น
+   *
+   * ต้องตอบกลับห้องที่พิมพ์มาเท่านั้น ถ้าใช้ sendChat มันจะไปโผล่ที่กลุ่มพนักงาน
+   * ซึ่งเป็นคนละห้องกับที่ถาม แล้วก็จะได้เลขของกลุ่มแทน = ผิดทั้งคู่
+   */
+  if (cmd === '/id') {
+    const chatId = update?.message?.chat?.id;
+    const kind = update?.message?.chat?.type === 'private' ? 'ห้องส่วนตัว' : 'กลุ่ม';
+    if (chatId && cfg.telegramToken) {
+      await fetch(`https://api.telegram.org/bot${cfg.telegramToken}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: `🪪 ${kind}นี้คือ\n\n<code>${chatId}</code>\n\n`
+            + 'ถ้านี่คือห้องส่วนตัวของหัวหน้า ให้เอาเลขนี้ไปตั้งด้วยคำสั่ง\n'
+            + '<code>npx wrangler secret put TELEGRAM_BOSS_CHAT_ID</code>\n\n'
+            + '<i>ตั้งแล้วเรื่องที่เกิดนอกเวลางานจะส่งมาที่ห้องนี้ห้องเดียว ไม่กวนกลุ่มพนักงาน</i>',
+          parse_mode: 'HTML',
+          disable_notification: true,
+        }),
+      }).catch(() => {});
+    }
+    return json({ ok: true });
+  }
+
   if (cmd === '/help' || cmd === '/start') {
     await sendChat(
       cfg,
@@ -821,6 +863,9 @@ async function handleTelegramWebhook(request, env, cfg) {
 /done — แจ้งว่าปิดแอร์ตามรอบแล้ว
 /ack — รับเรื่องแล้ว กำลังไปจัดการ (หยุดย้ำซ้ำ ${cfg.ackSuppressMin} นาที แต่ถ้าไฟหลวงยังไต่ขึ้นจะเตือนใหม่ทันที)
 /restore — เปิดอุปกรณ์ที่ระบบสั่งปิดกลับทั้งหมด
+/id — บอกเลขห้องแชทนี้ (ใช้ตอนตั้งค่าห้องส่วนตัวของหัวหน้า)
+
+<i>หลัง ${cfg.staffHourEnd}:00 น. ถึง ${cfg.staffHourStart}:00 น. ระบบจะไม่ส่งเข้ากลุ่มนี้ แต่ส่งหาหัวหน้าคนเดียว</i>
 
 <i>ไม่มีคำสั่งปิดเสียง — ระบบนี้เงียบไม่ได้ เพราะพลาดครั้งเดียวผูกยาว 12 เดือน</i>`,
       { silent: true },

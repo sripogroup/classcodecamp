@@ -20,12 +20,14 @@ export function makeRelay(cfg, log) {
     return async (text) => { log(`[ส่งไม่ได้] ${text.split('\n')[0]}`, 'WARN'); return { ok: false }; };
   }
 
-  return async function relay(text, { toBoss = false, silent = false, emailSubject = null, emailHtml = null } = {}) {
+  return async function relay(text, {
+    toBoss = false, silent = false, bossOnly = false, emailSubject = null, emailHtml = null,
+  } = {}) {
     try {
       const res = await fetch(`${base}/api/notify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Ingest-Token': token },
-        body: JSON.stringify({ text, toBoss, silent, emailSubject, emailHtml }),
+        body: JSON.stringify({ text, toBoss, silent, bossOnly, emailSubject, emailHtml }),
       });
       const out = await res.json().catch(() => ({}));
       if (!res.ok || out.ok === false) {

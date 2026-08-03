@@ -1,14 +1,30 @@
 /** ส่งข้อความเข้ากลุ่ม Telegram (ฟรี ไม่จำกัดจำนวนข้อความ) */
 
-export async function sendTelegram(cfg, text, { toBoss = false, silent = false } = {}) {
+/**
+ * bossOnly = ส่งหาหัวหน้าคนเดียว ไม่เข้ากลุ่มพนักงาน
+ *
+ * ใช้นอกเวลางาน — เรื่องไฟยังต้องรู้ (พีคที่เกิดตอนสามทุ่มก็แพงเท่าตอนบ่าย)
+ * แต่ไม่มีเหตุผลให้โทรศัพท์พนักงานทั้งกลุ่มสั่นตอนเขากลับบ้านไปแล้ว
+ *
+ * ถ้ายังไม่ได้ตั้งช่องของหัวหน้าไว้ จะส่งเข้ากลุ่มแบบไม่มีเสียงแทน
+ * เพราะ "เงียบสนิทเพราะตั้งค่าไม่ครบ" อันตรายกว่ารบกวนผิดเวลา
+ */
+export async function sendTelegram(cfg, text, { toBoss = false, silent = false, bossOnly = false } = {}) {
   if (!cfg.telegramToken) return { ok: false, skipped: 'ยังไม่ได้ตั้ง TELEGRAM_BOT_TOKEN' };
 
+  const hasBoss = !!cfg.telegramBossChatId;
   const targets = [];
-  if (cfg.telegramChatId) targets.push(cfg.telegramChatId);
-  if (toBoss && cfg.telegramBossChatId && cfg.telegramBossChatId !== cfg.telegramChatId) {
+  if (bossOnly && hasBoss) {
     targets.push(cfg.telegramBossChatId);
+  } else {
+    if (cfg.telegramChatId) targets.push(cfg.telegramChatId);
+    if (toBoss && hasBoss && cfg.telegramBossChatId !== cfg.telegramChatId) {
+      targets.push(cfg.telegramBossChatId);
+    }
   }
   if (!targets.length) return { ok: false, skipped: 'ยังไม่ได้ตั้ง TELEGRAM_CHAT_ID' };
+  // ตกมาที่กลุ่มเพราะไม่มีช่องหัวหน้า -> อย่างน้อยอย่าให้มีเสียง
+  if (bossOnly && !hasBoss) silent = true;
 
   const results = [];
   for (const chatId of targets) {
@@ -40,6 +56,7 @@ const COMMANDS = [
   { command: 'ack', description: 'รับเรื่องแล้ว กำลังไปจัดการ' },
   { command: 'done', description: 'ปิดแอร์ตามรอบแล้ว' },
   { command: 'restore', description: 'เปิดอุปกรณ์ที่ถูกสั่งปิดกลับ' },
+  { command: 'id', description: 'บอกเลขห้องแชทนี้ (ใช้ตอนตั้งค่า)' },
   { command: 'help', description: 'ดูคำสั่งทั้งหมด' },
 ];
 
