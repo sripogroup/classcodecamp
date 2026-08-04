@@ -275,11 +275,24 @@ export function computeTest(store, test, zone = null) {
   if (!preRunning && !byOff && zone && durationSec < zone.minutes * 60 * 0.8) {
     warnings.push(`เปิดไม่ครบเวลาที่แนะนำ (${Math.round(durationSec / 60)} จาก ${zone.minutes} นาที) ค่าอาจสูงกว่าจริง`);
   }
-  // โหมดปิด: เส้นฐานหลังจบต้องกลับขึ้นไปใกล้ของเดิม (เพราะเปิดกลับแล้ว) จึงไม่ใช่สัญญาณผิด
-  if (!byOff && drift !== null && Math.abs(drift) > DRIFT_WARN_KW) {
+  const delta = steadyAbs === null ? null : (byOff ? base - steadyAbs : steadyAbs - base);
+
+  /**
+   * เส้นฐานก่อน/หลังต่างกัน = สัญญาณว่ามีอย่างอื่นเปลี่ยนระหว่างวัด — แต่ไม่เสมอไป
+   *
+   * มีสองแบบที่ต่างกันแล้วถูกต้อง:
+   *   ปิดโซนกลับหลังวัดเสร็จ  -> เส้นฐานหลังเท่าก่อน (drift ≈ 0)
+   *   ปล่อยเปิดค้างไว้        -> เส้นฐานหลังสูงขึ้นเท่ากับโหลดของโซนนั้น (drift ≈ delta)
+   *
+   * แบบที่สองคือสิ่งที่เกิดขึ้นเป็นปกติเวลาวัดพัดลมหรือไฟส่องสว่างแล้วไม่ได้ปิดกลับ
+   * ของเดิมเตือนทุกครั้งที่ drift เกินเกณฑ์ ทำให้ผลที่ถูกต้องที่สุดกลับมีคำเตือน
+   * ติดมาด้วย — คำเตือนที่ขึ้นทั้งที่ไม่มีอะไรผิด คือคำเตือนที่คนจะเลิกอ่าน
+   */
+  if (drift !== null && delta !== null
+      && Math.abs(drift) > DRIFT_WARN_KW
+      && Math.abs(drift - (byOff ? -delta : delta)) > DRIFT_WARN_KW) {
     warnings.push(`เส้นฐานก่อน/หลังต่างกัน ${drift > 0 ? '+' : ''}${drift} kW — น่าจะมีอย่างอื่นเปิดหรือปิดระหว่างวัด`);
   }
-  const delta = steadyAbs === null ? null : (byOff ? base - steadyAbs : steadyAbs - base);
   if (!isBase && delta !== null && delta < 0.15) {
     warnings.push(byOff
       ? 'โหลดแทบไม่ลด — ตรวจดูว่าปิดโซนนั้นจริงหรือยัง'
