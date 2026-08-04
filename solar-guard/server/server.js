@@ -506,7 +506,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.pathname === '/api/loads/start' && req.method === 'POST') {
       const body = await readJson(req);
-      const t = zones.start(String(body.zone || ''), { preRunning: !!body.preRunning });
+      const t = zones.start(String(body.zone || ''), { preRunning: !!body.preRunning, byOff: !!body.byOff });
       return send(200, { ok: true, test: t });
     }
     if (url.pathname === '/api/loads/confirm' && req.method === 'POST') {
@@ -531,7 +531,7 @@ const server = http.createServer(async (req, res) => {
       const from = now - Number(b.fromMinAgo || 0) * 60000;
       const to = now - Number(b.toMinAgo || 0) * 60000;
       const result = zones.record(String(b.zone || ''), from, to, String(b.note || ''), !!b.preRunning,
-        b.baseKw === undefined || b.baseKw === null || b.baseKw === '' ? null : Number(b.baseKw));
+        b.baseKw === undefined || b.baseKw === null || b.baseKw === '' ? null : Number(b.baseKw), !!b.byOff);
       const n = applyShedList();
       applyNightIdle();
       return send(200, { ok: true, result, shedCount: n });

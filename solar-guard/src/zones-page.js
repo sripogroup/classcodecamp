@@ -124,7 +124,12 @@ export function zonesHtml(cfg) {
   <div class="card" id="starter">
     <div class="muted" id="nextHint" style="margin-bottom:10px"></div>
     <select id="pick"></select>
-    <label class="chk"><input type="checkbox" id="fPre"> เครื่องนี้<b>เปิดค้างอยู่ก่อนแล้ว</b> (ไม่ได้เพิ่งเปิด)</label>
+    <label class="fl">วัดด้วยวิธีไหน</label>
+    <select id="fMode">
+      <option value="on">เปิดเครื่อง แล้วดูว่าโหลดเพิ่มเท่าไร</option>
+      <option value="off">ปิดเครื่อง แล้วดูว่าโหลดลดเท่าไร (ของที่เปิดอยู่แล้ว)</option>
+    </select>
+    <label class="chk" id="preWrap"><input type="checkbox" id="fPre"> เครื่องนี้<b>เปิดค้างอยู่ก่อนแล้ว</b> (ไม่ได้เพิ่งเปิด)</label>
     <div class="row"><button class="go" id="btnStart">เริ่มวัดโซนนี้</button></div>
     <div class="muted" style="margin-top:10px" id="startHint"></div>
   </div>
@@ -244,7 +249,9 @@ function render() {
     const warn = wsrc && wsrc.warnings && wsrc.warnings.length
       ? '<div class="warn">⚠ ' + wsrc.warnings.join('<br>⚠ ') + '</div>' : '';
     const val = m
-      ? '<div class="kw">' + m.steadyKw.toFixed(3) + '<small>เดินปกติ (พีค ' + m.peakKw.toFixed(3) + ')</small></div>'
+      ? '<div class="kw">' + m.steadyKw.toFixed(3) + '<small>'
+        + (m.peakKw !== null && m.peakKw !== undefined ? 'เดินปกติ (พีค ' + m.peakKw.toFixed(3) + ')' : 'วัดจากการปิด')
+        + '</small></div>'
       : '';
     const btn = d.running ? '' :
       '<button' + (f && !m ? ' class="go"' : '') + ' data-go="' + z.slug + '">' +
@@ -395,12 +402,15 @@ $('btnSaveZone').onclick = async () => {
 };
 
 async function start(slug) {
-  const pre = $('fPre').checked;
+  const byOff = $('fMode').value === 'off';
+  const pre = !byOff && $('fPre').checked;
   try {
-    await api('/api/loads/start', { zone: slug, preRunning: pre });
-    msg(pre
-      ? 'เริ่มแล้ว — เทียบกับเส้นฐานที่บันทึกไว้ ปล่อยไว้สัก 2-3 นาทีแล้วกดจบได้เลย'
-      : 'เริ่มจับเวลาแล้ว — เปิดค้างไว้จนกว่าหน้าจอจะเป็นสีเขียว');
+    await api('/api/loads/start', { zone: slug, preRunning: pre, byOff: byOff });
+    msg(byOff
+      ? '<b>ปิดโซนนี้ได้เลยตอนนี้</b> แล้วปล่อยไว้สัก 2 นาที จากนั้นกดจบ — ระบบจะดูว่าโหลดลดไปเท่าไร'
+      : pre
+        ? 'เริ่มแล้ว — เทียบกับเส้นฐานที่บันทึกไว้ ปล่อยไว้สัก 2-3 นาทีแล้วกดจบได้เลย'
+        : 'เริ่มจับเวลาแล้ว — เปิดค้างไว้จนกว่าหน้าจอจะเป็นสีเขียว');
     await load();
   } catch (e) { msg(e.message, 'err'); }
 }
@@ -409,13 +419,21 @@ $('btnStart').onclick = () => start($('pick').value);
 
 /* คำอธิบายเปลี่ยนตามช่องติ๊ก เพราะสองแบบนี้เทียบเส้นฐานคนละที่ ผลจึงต่างกันมาก */
 function paintStartHint() {
+  const byOff = $('fMode').value === 'off';
   const pre = $('fPre').checked;
-  $('startHint').innerHTML = pre
-    ? 'เทียบกับ<b>เส้นฐานที่บันทึกไว้</b> (ไฟส่องสว่าง ' + (DATA && DATA.baselineKw !== null ? DATA.baselineKw.toFixed(3) + ' kW' : 'ยังไม่ได้วัด') + ') ' +
-      'ใช้เมื่อของเปิดค้างมานานแล้ว — ไม่ต้องรอครบเวลา เพราะไม่มีช่วงกินไฟสูงตอนสตาร์ทให้รอ'
-    : 'กดตอนที่เพิ่งเปิดเครื่องเสร็จ ระบบจะเทียบกับ 90 วินาทีก่อนหน้าเป็นเส้นฐานให้เอง';
+  $('preWrap').style.display = byOff ? 'none' : 'flex';
+  $('btnStart').textContent = byOff ? 'เริ่ม แล้วไปปิดโซนนี้' : 'เริ่มวัดโซนนี้';
+  $('startHint').innerHTML = byOff
+    ? '<b>วิธีนี้ใช้ได้ทุกเวลา แม้ช่วง On Peak</b> เพราะการปิดทำให้โหลดลด ไม่มีทางไปสร้างพีคใหม่ของเดือน<br>'
+      + 'ลำดับ: กดเริ่ม → ไปปิดโซนนั้น → รอ 2 นาที → กดจบ → เปิดกลับได้เลย<br>'
+      + 'ระหว่างนั้นอย่าให้ใครไปเปิดหรือปิดอย่างอื่น ไม่งั้นตัวเลขจะปนกัน'
+    : pre
+      ? 'เทียบกับ<b>เส้นฐานที่บันทึกไว้</b> (' + (DATA && DATA.baselineKw !== null ? DATA.baselineKw.toFixed(3) + ' kW' : 'ยังไม่ได้วัด') + ') '
+        + 'ใช้เมื่อของเปิดค้างมานานแล้ว — ไม่ต้องรอครบเวลา เพราะไม่มีช่วงกินไฟสูงตอนสตาร์ทให้รอ'
+      : 'กดตอนที่เพิ่งเปิดเครื่องเสร็จ ระบบจะเทียบกับ 90 วินาทีก่อนหน้าเป็นเส้นฐานให้เอง';
 }
 $('fPre').onchange = paintStartHint;
+$('fMode').onchange = paintStartHint;
 paintStartHint();
 
 $('btnCancel').onclick = async () => {
@@ -426,16 +444,19 @@ $('btnCancel').onclick = async () => {
 
 $('btnStop').onclick = async () => {
   const r = DATA?.running;
-  const need = (r?.minutes || 15) * 60;
+  const byOff = !!(r?.live && r.live.byOff);
+  const need = byOff ? 120 : (r?.minutes || 15) * 60;
   const el = (Date.now() - (r?.startedAt || 0)) / 1000;
-  if (el < need && !confirm('ยังเปิดไม่ครบ ' + r.minutes + ' นาที ค่าที่ได้จะสูงกว่าจริง จบเลยไหม?')) return;
+  if (el < need && !confirm(byOff
+    ? 'ยังปิดไม่ครบ 2 นาที ค่าอาจยังไม่นิ่ง จบเลยไหม?'
+    : 'ยังเปิดไม่ครบ ' + r.minutes + ' นาที ค่าที่ได้จะสูงกว่าจริง จบเลยไหม?')) return;
   try {
     const out = await api('/api/loads/stop', {});
     const x = out.result;
-    msg('บันทึกแล้ว: <b>' + x.name + '</b> กินไฟ <b>' + x.steadyKw.toFixed(3) + ' kW</b> ' +
-        '(พีคตอนสตาร์ท ' + x.peakKw.toFixed(3) + ' kW) — ปิดโซนนี้ได้เลย ' +
-        'รอโหลดนิ่งสัก 2 นาทีแล้วค่อยเปิดโซนถัดไป' +
-        (x.warnings.length ? '<br>⚠ ' + x.warnings.join('<br>⚠ ') : ''));
+    msg('บันทึกแล้ว: <b>' + x.name + '</b> กินไฟ <b>' + x.steadyKw.toFixed(3) + ' kW</b>'
+        + (x.peakKw !== null && x.peakKw !== undefined ? ' (พีคตอนสตาร์ท ' + x.peakKw.toFixed(3) + ' kW)' : '')
+        + (x.byOff ? ' — เปิดโซนนี้กลับได้เลย' : ' — ปิดโซนนี้ได้เลย รอโหลดนิ่งสัก 2 นาทีแล้วค่อยวัดโซนถัดไป')
+        + (x.warnings.length ? '<br>⚠ ' + x.warnings.join('<br>⚠ ') : ''));
     await load();
   } catch (e) { msg(e.message, 'err'); }
 };
@@ -445,15 +466,22 @@ setInterval(() => {
   const r = DATA?.running;
   if (!r) return;
   const el = (Date.now() - r.startedAt) / 1000;
-  const need = r.minutes * 60;
+  /* โหมดปิดใช้เวลาสั้นกว่ามาก — โหลดลงทันทีที่ตัดไฟ ไม่มีช่วงไต่ขึ้นให้ต้องรอ
+     2 นาทีพอให้ค่านิ่งและเก็บจุดข้อมูลได้พอ */
+  const byOff = !!(r.live && r.live.byOff);
+  const need = byOff ? 120 : r.minutes * 60;
   const done = el >= need;
   $('lTimer').textContent = mmss(el);
   $('lProg').style.width = Math.min(100, (el / need) * 100) + '%';
   $('live').className = 'card' + (done ? ' ready' : '');
-  $('lHint').innerHTML = done
-    ? '✅ ครบเวลาแล้ว — กดปุ่มข้างล่างเพื่อบันทึก แล้วปิดโซนนี้ได้เลย'
-    : 'เปิดค้างไว้ก่อน อีก <b>' + mmss(need - el) + '</b> ('
-      + r.minutes + ' นาที เพื่อให้ผ่านช่วงกินไฟสูงตอนเพิ่งเปิด แล้วเข้าสู่รอบเดินปกติ)';
+  $('lHint').innerHTML = byOff
+    ? (done
+      ? '✅ ครบเวลาแล้ว — กดบันทึก แล้วเปิดโซนนี้กลับได้เลย'
+      : 'ปิดโซนนี้ค้างไว้ก่อน อีก <b>' + mmss(need - el) + '</b> แล้วค่อยกดจบ')
+    : (done
+      ? '✅ ครบเวลาแล้ว — กดปุ่มข้างล่างเพื่อบันทึก แล้วปิดโซนนี้ได้เลย'
+      : 'เปิดค้างไว้ก่อน อีก <b>' + mmss(need - el) + '</b> ('
+        + r.minutes + ' นาที เพื่อให้ผ่านช่วงกินไฟสูงตอนเพิ่งเปิด แล้วเข้าสู่รอบเดินปกติ)');
 }, 1000);
 
 load();

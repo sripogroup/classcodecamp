@@ -121,6 +121,16 @@ export function initZoneTables(db) {
   if (!cols.includes('base_kw')) db.exec('ALTER TABLE zone_tests ADD COLUMN base_kw REAL');
   if (!cols.includes('confirmed')) db.exec('ALTER TABLE zone_tests ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 0');
 
+  // measure_mode = วัดด้วยวิธีไหน
+  //   on   เปิดเครื่องแล้วดูว่าโหลดเพิ่มเท่าไร
+  //   off  ปิดเครื่องแล้วดูว่าโหลดลดเท่าไร
+  //
+  // โหมด off จำเป็นกว่าที่คิด: ของที่เปิดค้างอยู่แล้ว (ไฟส่องสว่าง พัดลมทั้งโกดัง)
+  // วัดด้วยการเปิดไม่ได้เลย เพราะมันเปิดอยู่แล้ว ไม่มีอะไรให้เปลี่ยน
+  // และยังปลอดภัยกว่าตอนกลางวันด้วย — ปิดของทำให้โหลดลด จึงไม่มีทางสร้างพีคใหม่
+  // ต่างจากการเปิดเครื่องทดสอบซึ่งเสี่ยงดันพีคของทั้งเดือน
+  if (!cols.includes('measure_mode')) db.exec("ALTER TABLE zone_tests ADD COLUMN measure_mode TEXT NOT NULL DEFAULT 'on'");
+
   // night_ok = ของที่เปิดกลางคืนได้ตามปกติ (แอร์ห้องนอน ตู้เย็น)
   // ใช้คิดเกณฑ์ "กลางคืนแต่ยังใช้ไฟอยู่" ให้ตรงกับความเป็นจริงของบ้านหลังนี้
   const zcols = db.prepare('PRAGMA table_info(zone_defs)').all().map((c) => c.name);
@@ -217,10 +227,25 @@ export function computeTest(store, test, zone = null) {
   const steadyAbs = median(tail);
   const avgAbs = mean(loads);
 
+  /**
+   * วัดด้วยการ "ปิด" — โหลดที่หายไปคือโหลดของโซนนั้น
+   *
+   * เป็นวิธีเดียวที่ใช้ได้กับของที่เปิดค้างอยู่แล้ว (ไฟส่องสว่าง พัดลมทั้งโกดัง)
+   * เพราะจะเปิดซ้ำก็ไม่มีอะไรให้เปลี่ยน และเป็นวิธีที่ปลอดภัยที่สุดตอนกลางวัน
+   * เพราะการปิดทำให้โหลดลด จึงไม่มีทางไปสร้างพีคใหม่ของเดือน
+   *
+   * ทิศทางการลบกลับด้านกับโหมดเปิด: ฐาน − ค่าที่วัดได้ แทนที่จะเป็น ค่า − ฐาน
+   */
+  const byOff = test.measure_mode === 'off';
+
   // โซนเส้นฐานตัวแรก (ไฟส่องสว่างออฟฟิศที่เปิดตอนไม่มีอะไรอื่นเลย) ไม่ต้องลบอะไร
   // แต่ถ้าระบุเส้นฐานมาเอง แปลว่ามีของอื่นเปิดอยู่ด้วย ต้องลบออกเหมือนโซนทั่วไป
-  const isBase = !!zone?.baseline && fixedBase === null;
-  const sub = (v) => (v === null ? null : round2(isBase ? v : v - base));
+  const isBase = !!zone?.baseline && fixedBase === null && !byOff;
+  const sub = (v) => {
+    if (v === null) return null;
+    if (byOff) return round2(base - v);
+    return round2(isBase ? v : v - base);
+  };
 
   const drift = baseAfter === null || baseBefore === null ? null : round2(baseAfter - baseBefore);
 
@@ -229,15 +254,22 @@ export function computeTest(store, test, zone = null) {
   const confirmed = !!test.confirmed;
 
   const warnings = [];
-  if (inWin.length < MIN_SAMPLES) warnings.push(`ข้อมูลน้อยไป (${inWin.length} จุด) — เปิดค้างให้นานกว่านี้`);
-  if (!preRunning && zone && durationSec < zone.minutes * 60 * 0.8) {
+  const minSamples = byOff ? 12 : MIN_SAMPLES; // ปิดแล้วโหลดลงทันที ไม่ต้องรอนาน
+  if (inWin.length < minSamples) {
+    warnings.push(`ข้อมูลน้อยไป (${inWin.length} จุด) — ${byOff ? 'ปิดค้าง' : 'เปิดค้าง'}ให้นานกว่านี้`);
+  }
+  if (!preRunning && !byOff && zone && durationSec < zone.minutes * 60 * 0.8) {
     warnings.push(`เปิดไม่ครบเวลาที่แนะนำ (${Math.round(durationSec / 60)} จาก ${zone.minutes} นาที) ค่าอาจสูงกว่าจริง`);
   }
-  if (drift !== null && Math.abs(drift) > DRIFT_WARN_KW) {
+  // โหมดปิด: เส้นฐานหลังจบต้องกลับขึ้นไปใกล้ของเดิม (เพราะเปิดกลับแล้ว) จึงไม่ใช่สัญญาณผิด
+  if (!byOff && drift !== null && Math.abs(drift) > DRIFT_WARN_KW) {
     warnings.push(`เส้นฐานก่อน/หลังต่างกัน ${drift > 0 ? '+' : ''}${drift} kW — น่าจะมีอย่างอื่นเปิดหรือปิดระหว่างวัด`);
   }
-  if (!isBase && steadyAbs !== null && steadyAbs - base < 0.15) {
-    warnings.push('แทบไม่เห็นความต่าง — ตรวจดูว่าเปิดโซนนั้นจริงหรือยัง');
+  const delta = steadyAbs === null ? null : (byOff ? base - steadyAbs : steadyAbs - base);
+  if (!isBase && delta !== null && delta < 0.15) {
+    warnings.push(byOff
+      ? 'โหลดแทบไม่ลด — ตรวจดูว่าปิดโซนนั้นจริงหรือยัง'
+      : 'แทบไม่เห็นความต่าง — ตรวจดูว่าเปิดโซนนั้นจริงหรือยัง');
   }
 
   // "ใช้ได้จริงไหม" — ต้องแยกจาก "วัดจบแล้ว"
@@ -247,8 +279,9 @@ export function computeTest(store, test, zone = null) {
   // ไม่งั้นหน้าจอจะบอกว่าครบแล้วทั้งที่ตัวเลขใช้ไม่ได้ แล้วไม่มีใครกลับมาวัดซ้ำ
   // คนกดยืนยันเองได้ ระบบไม่ใช่คนที่รู้ดีที่สุดเสมอ — คนที่ยืนอยู่หน้าเครื่องรู้ว่า
   // เพิ่งเปิดหรือเปิดค้างมาทั้งวัน แต่ต้องมีตัวเลขที่เป็นบวกจริงถึงจะยืนยันได้
-  const hasValue = typeof steadyAbs === 'number' && (isBase ? steadyAbs > 0.1 : steadyAbs - base > 0.1);
-  const enoughData = inWin.length >= (preRunning ? 6 : MIN_SAMPLES);
+  const hasValue = typeof steadyAbs === 'number'
+    && (isBase ? steadyAbs > 0.1 : delta > 0.1);
+  const enoughData = inWin.length >= (preRunning || byOff ? 6 : MIN_SAMPLES);
   const usable = hasValue && (enoughData || confirmed);
 
   return {
@@ -258,6 +291,7 @@ export function computeTest(store, test, zone = null) {
     usable,
     confirmed,
     preRunning,
+    byOff,
     startedAt: from,
     endedAt: test.ended_at,
     status: test.status,
@@ -269,9 +303,11 @@ export function computeTest(store, test, zone = null) {
     driftKw: drift,
     // ตัวเลขที่ใช้จริง — kW ที่โซนนี้กิน
     steadyKw: sub(steadyAbs),   // เดินปกติ ใช้คิดค่าไฟและใช้ตัดสินใจว่าปิดแล้วได้เท่าไร
-    peakKw: sub(peakRow?.load ?? null), // สูงสุดที่เคยเห็น ใช้ระวังเรื่องพีค demand
+    // พีคดูจากการปิดไม่ได้ — ช่วงที่วัดคือตอนที่โซนนั้นดับอยู่ ค่าสูงสุดที่เห็น
+    // จึงเป็นของอย่างอื่น ไม่ใช่ของโซนนี้ บอกว่าไม่รู้ตรง ๆ ดีกว่าให้เลขที่ผิด
+    peakKw: byOff ? null : sub(peakRow?.load ?? null),
     avgKw: sub(avgAbs),
-    peakAt: peakRow?.t ?? null,
+    peakAt: byOff ? null : (peakRow?.t ?? null),
     warnings,
   };
 }
@@ -449,20 +485,20 @@ export class Zones {
     };
   }
 
-  start(slug, { at = Date.now(), preRunning = false } = {}) {
+  start(slug, { at = Date.now(), preRunning = false, byOff = false } = {}) {
     const zone = this.def(slug);
     if (!zone) throw new Error(`ไม่รู้จักโซน "${slug}"`);
     const cur = this.running();
     if (cur) throw new Error(`กำลังวัด "${this.def(cur.zone)?.name || cur.zone}" อยู่ ต้องจบอันนั้นก่อน`);
 
-    const baseKw = preRunning ? this.savedBaselineKw(slug) : null;
-    if (preRunning && baseKw === null) {
+    const baseKw = (preRunning && !byOff) ? this.savedBaselineKw(slug) : null;
+    if (preRunning && !byOff && baseKw === null) {
       throw new Error('ยังไม่มีเส้นฐานที่บันทึกไว้ — ต้องวัดไฟส่องสว่างก่อน ถึงจะวัดของที่เปิดค้างอยู่ได้');
     }
 
     const r = this.db
-      .prepare("INSERT INTO zone_tests (zone, started_at, status, base_mode, base_kw) VALUES (?,?,'running',?,?)")
-      .run(slug, Math.round(at), preRunning ? 'fixed' : 'auto', baseKw);
+      .prepare("INSERT INTO zone_tests (zone, started_at, status, base_mode, base_kw, measure_mode) VALUES (?,?,'running',?,?,?)")
+      .run(slug, Math.round(at), preRunning ? 'fixed' : 'auto', baseKw, byOff ? 'off' : 'on');
     this.log(preRunning
       ? `เริ่มวัดโซน "${zone.name}" (เปิดค้างอยู่ก่อนแล้ว เทียบกับเส้นฐาน ${baseKw} kW)`
       : `เริ่มวัดโซน "${zone.name}" — ให้เปิดค้าง ${zone.minutes} นาที`);
@@ -509,7 +545,7 @@ export class Zones {
    * ทำให้ฐานสูงเกินจริง แล้วผลออกมาติดลบ ซึ่งไม่มีความหมายอะไรเลย
    * คนที่อยู่หน้างานรู้ว่าตอนนั้นมีอะไรเปิดบ้าง จึงต้องเปิดทางให้บอกระบบได้
    */
-  record(slug, from, to, note = '', preRunning = false, baseKwOverride = null) {
+  record(slug, from, to, note = '', preRunning = false, baseKwOverride = null, byOff = false) {
     const zone = this.def(slug);
     if (!zone) throw new Error(`ไม่รู้จักโซน "${slug}"`);
     if (!(to > from)) throw new Error('ช่วงเวลาไม่ถูกต้อง');
@@ -517,9 +553,10 @@ export class Zones {
       ? Number(baseKwOverride)
       : (preRunning ? this.savedBaselineKw(slug) : null);
     const r = this.db
-      .prepare(`INSERT INTO zone_tests (zone, started_at, ended_at, status, note, base_mode, base_kw)
-                VALUES (?,?,?,'done',?,?,?)`)
-      .run(slug, Math.round(from), Math.round(to), note || null, baseKw !== null ? 'fixed' : 'auto', baseKw);
+      .prepare(`INSERT INTO zone_tests (zone, started_at, ended_at, status, note, base_mode, base_kw, measure_mode)
+                VALUES (?,?,?,'done',?,?,?,?)`)
+      .run(slug, Math.round(from), Math.round(to), note || null,
+        baseKw !== null ? 'fixed' : 'auto', baseKw, byOff ? 'off' : 'on');
 
     const row = this.db.prepare('SELECT * FROM zone_tests WHERE id = ?').get(Number(r.lastInsertRowid));
     const result = computeTest(this.store, row, this.def(row.zone));
