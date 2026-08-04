@@ -131,6 +131,19 @@ export function initZoneTables(db) {
   // ต่างจากการเปิดเครื่องทดสอบซึ่งเสี่ยงดันพีคของทั้งเดือน
   if (!cols.includes('measure_mode')) db.exec("ALTER TABLE zone_tests ADD COLUMN measure_mode TEXT NOT NULL DEFAULT 'on'");
 
+  // absolute = โซนที่วัดเป็น "ค่าดิบทั้งก้อน" ไม่ต้องหักฐาน
+  //
+  // ควรมีแค่โซนเดียวคือโหลดที่เหลือเมื่อปิดทุกอย่างแล้ว เพราะมันคือฐานเสียเอง
+  // ที่ต้องแยกจาก is_baseline เพราะสองอย่างนี้คนละความหมาย: is_baseline แปลว่า
+  // "นับรวมเป็นเส้นฐาน" ส่วน absolute แปลว่า "ตอนวัดไม่ต้องลบอะไรออก"
+  //
+  // ตอนแรกใช้ปนกัน ผลคือไฟส่องสว่างโกดังที่วัดตอนกลางวันได้ 4.35 kW ทั้งที่จริง
+  // 1.6 kW — เพราะมันเอาโหลดทั้งโรงงาน ณ ตอนนั้นมาเป็นค่าของตัวเอง (4 ส.ค. 69)
+  const zcols0 = db.prepare('PRAGMA table_info(zone_defs)').all().map((c) => c.name);
+  if (zcols0.length && !zcols0.includes('absolute')) {
+    db.exec('ALTER TABLE zone_defs ADD COLUMN absolute INTEGER NOT NULL DEFAULT 0');
+  }
+
   // night_ok = ของที่เปิดกลางคืนได้ตามปกติ (แอร์ห้องนอน ตู้เย็น)
   // ใช้คิดเกณฑ์ "กลางคืนแต่ยังใช้ไฟอยู่" ให้ตรงกับความเป็นจริงของบ้านหลังนี้
   const zcols = db.prepare('PRAGMA table_info(zone_defs)').all().map((c) => c.name);
@@ -169,6 +182,7 @@ function rowToZone(r) {
     sort: r.sort,
     active: !!r.active,
     nightOk: !!r.night_ok,
+    absolute: !!r.absolute,
   };
 }
 
@@ -240,7 +254,7 @@ export function computeTest(store, test, zone = null) {
 
   // โซนเส้นฐานตัวแรก (ไฟส่องสว่างออฟฟิศที่เปิดตอนไม่มีอะไรอื่นเลย) ไม่ต้องลบอะไร
   // แต่ถ้าระบุเส้นฐานมาเอง แปลว่ามีของอื่นเปิดอยู่ด้วย ต้องลบออกเหมือนโซนทั่วไป
-  const isBase = !!zone?.baseline && fixedBase === null && !byOff;
+  const isBase = !!zone?.absolute && fixedBase === null && !byOff;
   const sub = (v) => {
     if (v === null) return null;
     if (byOff) return round2(base - v);
@@ -361,9 +375,9 @@ export class Zones {
       // โซนที่ห้ามปิดต้องไม่มีลำดับการปิดค้างอยู่ ไม่งั้นสองค่านี้จะขัดกันเอง
       const order = isProtected ? null : numOr(input.shedOrder, cur.shedOrder);
       this.db.prepare(`UPDATE zone_defs SET name=?, minutes=?, shed_order=?, protected=?,
-                       is_baseline=?, owner=?, note=?, night_ok=? WHERE slug=?`)
+                       is_baseline=?, owner=?, note=?, night_ok=?, absolute=? WHERE slug=?`)
         .run(name, minutes, order, isProtected ? 1 : 0, isBaseline ? 1 : 0, owner, note,
-          input.nightOk ? 1 : 0, slug);
+          input.nightOk ? 1 : 0, input.absolute ? 1 : 0, slug);
       this.log(`แก้โซน "${name}"`);
       return this.def(slug);
     }
@@ -378,10 +392,10 @@ export class Zones {
     const order = isProtected ? null : numOr(input.shedOrder, maxOrder + 1);
 
     this.db.prepare(`INSERT INTO zone_defs
-      (slug,name,minutes,shed_order,protected,is_baseline,owner,note,sort,night_ok)
-      VALUES (?,?,?,?,?,?,?,?,?,?)`)
+      (slug,name,minutes,shed_order,protected,is_baseline,owner,note,sort,night_ok,absolute)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
       .run(newSlug, name, minutes, order, isProtected ? 1 : 0, isBaseline ? 1 : 0, owner, note,
-        maxSort + 1, input.nightOk ? 1 : 0);
+        maxSort + 1, input.nightOk ? 1 : 0, input.absolute ? 1 : 0);
     this.log(`เพิ่มโซนใหม่ "${name}" (เปิดค้าง ${minutes} นาที)`);
     return this.def(newSlug);
   }
@@ -644,6 +658,7 @@ export class Zones {
         protectedZone: !!z.protectedZone,
         baseline: !!z.baseline,
         nightOk: !!z.nightOk,
+        absolute: !!z.absolute,
         owner: z.owner || null,
         note: z.note || null,
         measured: r && r.usable
@@ -653,6 +668,7 @@ export class Zones {
               avgKw: r.avgKw,
               at: r.startedAt,
               durationSec: r.durationSec,
+              byOff: !!r.byOff,
               warnings: r.warnings,
             }
           : null,
