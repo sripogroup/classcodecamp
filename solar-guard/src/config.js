@@ -30,6 +30,12 @@ export function loadConfig(env = {}) {
     // local = สมองอยู่บนเครื่องในโรงงาน คลาวด์เป็นแค่ยามคอยฟังสัญญาณ "ยังอยู่ดี"
     dataSource: ['api', 'kiosk', 'push', 'local'].includes(str(env.DATA_SOURCE, 'api')) ? str(env.DATA_SOURCE, 'api') : 'api',
     localDownMin: num(env.LOCAL_DOWN_MIN, 25), // เงียบเกินกี่นาทีถือว่าเครื่องในโรงงานตาย
+
+    // ที่อยู่ของเซิร์ฟเวอร์ในโรงงานที่คลาวด์เรียกถึงได้ (ผ่าน Cloudflare Tunnel)
+    //
+    // มีไว้ให้ /status ในแชทดึงตัวเลขสดจากต้นทางโดยตรง แทนที่จะอ่านค่าที่ค้าง
+    // อยู่ใน KV ซึ่งอัปเดตได้แค่ทุก 15 นาที และหยุดอัปเดตทั้งวันเมื่อโควตาเขียนหมด
+    localUrl: str(env.LOCAL_URL, ''),
     ingestToken: str(env.INGEST_TOKEN, ''), // รหัสลับของตัวอ่านในโรงงาน
     kioskKey: str(env.KIOSK_KEY, ''),
     kioskBase: str(env.KIOSK_BASE, ''),

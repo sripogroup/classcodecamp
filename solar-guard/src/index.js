@@ -21,7 +21,7 @@ import { setTelegramWebhook, replyTelegram } from './notify/telegram.js';
 import { sendChat } from './notify/chat.js';
 import { sendEmail } from './notify/email.js';
 import { dashboardHtml } from './dashboard.js';
-import { hhmm, isQuietHours, isStaffHours, minutesBetween, round1, thDateKey, thWhen } from './util.js';
+import { hhmm, isQuietHours, isStaffHours, minutesBetween, round1, round3, thDateKey, thWhen } from './util.js';
 
 const STATE_KEY = 'state';
 const STALE_MINUTES = 20; // ไม่ได้ข้อมูลนานเกินนี้ = ถือว่าระบบเงียบ
@@ -856,6 +856,21 @@ async function handleTelegramWebhook(request, env, cfg) {
      * FusionSolar เอง — ค้างอยู่ตั้งแต่วันที่ย้ายระบบและจะไม่ขยับอีกเลย
      * ต้องบอกอายุข้อมูลด้วยเสมอ ตัวเลขที่ไม่บอกว่าเก่าแค่ไหนคือตัวเลขที่หลอกคนอ่าน
      */
+    /**
+     * ทางที่ดีที่สุด: ถามเครื่องในโรงงานสด ๆ ผ่าน tunnel
+     *
+     * ค่าที่ได้เป็นของวินาทีนี้จริง ไม่ใช่ของเมื่อ 15 นาทีที่แล้ว และไม่พังเวลา
+     * โควตาเขียน KV หมด ซึ่งเป็นสาเหตุที่ /status เคยตอบเลขค้างข้ามวัน
+     * ถ้าเรียกไม่ได้ (เน็ตโรงงานล่ม / เครื่องดับ) ค่อยตกไปใช้ค่าที่เก็บไว้
+     */
+    if (cfg.localUrl) {
+      const live = await fetchLiveState(cfg).catch(() => null);
+      if (live) {
+        await reply(liveStatusText(live, cfg, now), { silent: true });
+        return json({ ok: true, source: 'live' });
+      }
+    }
+
     const hb = state.heartbeat;
     if (cfg.dataSource === 'local' && hb?.at) {
       const ageMin = Math.round(minutesBetween(now, hb.at));
@@ -960,6 +975,55 @@ async function handleTelegramWebhook(request, env, cfg) {
   }
 
   return json({ ok: true });
+}
+
+/* ------------------------------------------------- ถามเครื่องในโรงงานสด ๆ */
+
+/**
+ * ดึงสถานะปัจจุบันจากเซิร์ฟเวอร์ในโรงงานผ่าน tunnel
+ *
+ * ตั้งเวลาไว้สั้น (6 วินาที) เพราะนี่คือการตอบคำสั่งในแชท คนกำลังรออยู่หน้าจอ
+ * ถ้าโรงงานเน็ตช้าจนเกินนั้น ตอบด้วยข้อมูลสำรองยังดีกว่าปล่อยให้เงียบ
+ */
+async function fetchLiveState(cfg) {
+  const base = cfg.localUrl.replace(/\/$/, '');
+  const res = await fetch(`${base}/api/state`, {
+    headers: { 'x-token': cfg.dashboardToken },
+    signal: AbortSignal.timeout(6000),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const j = await res.json();
+  if (!j || typeof j.loadKw !== 'number') throw new Error('ข้อมูลไม่ครบ');
+  return j;
+}
+
+/** ข้อความ /status จากข้อมูลสด — รูปแบบเดียวกับที่หน้าจอในโรงงานแสดง */
+function liveStatusText(v, cfg, now) {
+  const icon = { green: '🟢 ปกติ', yellow: '🟡 เฝ้าระวัง', red: '🔴 ต้องลดโหลด' }[v.level] || '⚪ ไม่มีข้อมูล';
+  const w = v.window;
+  const m = v.month || {};
+  const mp = v.monthPeaks;
+  const b = v.bill || {};
+  const ageSec = Math.max(0, Math.round((now - (v.updatedAt || now)) / 1000));
+
+  return [
+    icon + (v.emergency ? ' 🆘' : ''),
+    `ดึงไฟหลวง <b>${round3(v.gridImportKw)} kW</b> | โซลาร์ ${round3(v.pvKw)} kW | โหลด ${round3(v.loadKw)} kW`,
+    w ? `⏱ หน้าต่างนี้ผ่านไป ${w.elapsedMin} นาที เหลือ ${w.remainMin} — คาดจบที่ <b>${round3(w.projectedKw)} kW</b>` : '',
+    '',
+    `📅 <b>สูงสุดของเดือน ${escapeTg(m.monthKey || '')}</b>`,
+    m.peakKw != null ? `   ไฟหลวง <b>${round3(m.peakKw)} kW</b> (เฉลี่ย 15 นาที ตัวที่คิดเงิน)` : '',
+    m.peakAt ? `   ทำไว้เมื่อ ${thWhen(m.peakAt)} น.` : '',
+    m.limitKw != null ? `   เพดาน ${m.limitKw} kW — เหลือระยะ <b>${round3(m.headroomKw)} kW</b> (ใช้ไป ${m.usedPct}%)` : '',
+    mp ? `   โหลดรวมสูงสุด ${round3(mp.loadKw)} kW — ${thWhen(mp.loadAt)} น.` : '',
+    mp ? `   โซลาร์สูงสุด ${round3(mp.pvKw)} kW — ${thWhen(mp.pvAt)} น.` : '',
+    '',
+    b.month ? `💸 ค่าไฟเดือนนี้ ≈ <b>${Math.round(b.month.totalBaht).toLocaleString('th-TH')} บาท</b>`
+      + (b.day ? ` (วันนี้ ${Math.round(b.day.totalBaht).toLocaleString('th-TH')} บาท)` : '') : '',
+    v.todayPeakKw ? `📈 ดึงไฟหลวงสูงสุดวันนี้ ${round3(v.todayPeakKw)} kW` : '',
+    '',
+    `<i>ค่าสดจากเครื่องในโรงงาน (${ageSec < 60 ? `${ageSec} วินาทีที่แล้ว` : hhmm(v.updatedAt)})</i>`,
+  ].filter(Boolean).join('\n');
 }
 
 /* ---------------------------------------------------------------- ตัวช่วย */
