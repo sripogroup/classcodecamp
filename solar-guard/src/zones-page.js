@@ -282,15 +282,19 @@ function render() {
   document.querySelectorAll('[data-del]').forEach((b) => { b.onclick = () => removeZone(b.dataset.del); });
 
   // ---- ตัวเลือกโซนถัดไป ----
-  $('pick').innerHTML = d.zones.map((z) =>
-    '<option value="' + z.slug + '"' + (d.nextSuggestion && d.nextSuggestion.slug === z.slug ? ' selected' : '') + '>' +
-    z.name + ' — เปิดค้าง ' + z.minutes + ' นาที' + (z.measured ? ' (วัดแล้ว)' : '') + '</option>').join('');
-  /* นับให้ตรงกับที่ตาเห็น — ของเดิมนับเฉพาะโซนที่ปิดได้ เลยขึ้นว่า "วัดแล้ว 0"
-     ทั้งที่ในรายการมีติ๊กถูกอยู่ 3 อัน ซึ่งอ่านแล้วนึกว่าระบบไม่ได้บันทึก */
+  /* ไม่ตั้งค่าเริ่มต้นให้ ต้องเลือกเองเสมอ
+     ของเดิมเลือกโซนที่ระบบแนะนำไว้ให้ ผลคือกดปุ่มเริ่มโดยไม่ทันดูช่องนี้แล้วได้
+     โซนผิด — 4 ส.ค. 69 การวัดไฟส่องสว่างโกดังไปลงเป็นชาร์จรถไฟฟ้าเพราะเรื่องนี้ */
+  const cur = $('pick').value;
+  $('pick').innerHTML = '<option value="">— เลือกโซนที่จะวัด —</option>'
+    + d.zones.map((z) =>
+      '<option value="' + z.slug + '"' + (cur === z.slug ? ' selected' : '') + '>'
+      + z.name + (z.measured ? ' (วัดแล้ว ' + z.measured.steadyKw.toFixed(3) + ' kW)' : '') + '</option>').join('');
+  /* บอกแค่ความคืบหน้า ไม่แนะนำว่าควรวัดอันไหน — คนที่อยู่หน้างานรู้ดีกว่าว่า
+     ตอนนี้เปิดปิดอะไรได้บ้าง (พ่อเต้ยสั่ง 4 ส.ค. 2569) */
   const doneAll = d.zones.filter((z) => z.measured).length;
-  $('nextHint').textContent = d.nextSuggestion
-    ? 'วัดแล้ว ' + doneAll + ' จาก ' + d.zones.length + ' โซน — ถัดไปที่แนะนำ: ' + d.nextSuggestion.name
-    : 'วัดครบทุกโซนแล้ว ' + doneAll + '/' + d.zones.length;
+  $('nextHint').textContent = 'วัดแล้ว ' + doneAll + ' จาก ' + d.zones.length + ' โซน';
+  paintStartHint();
 
   // ---- ลำดับการปิด (เลื่อนขึ้น/ลงได้) ----
   const rows = d.shedList.map((s, i) =>
@@ -415,14 +419,22 @@ async function start(slug) {
   } catch (e) { msg(e.message, 'err'); }
 }
 
-$('btnStart').onclick = () => start($('pick').value);
+$('btnStart').onclick = () => { if (!$('pick').value) { msg('เลือกโซนที่จะวัดก่อนครับ', 'err'); return; } start($('pick').value); };
 
 /* คำอธิบายเปลี่ยนตามช่องติ๊ก เพราะสองแบบนี้เทียบเส้นฐานคนละที่ ผลจึงต่างกันมาก */
 function paintStartHint() {
   const byOff = $('fMode').value === 'off';
   const pre = $('fPre').checked;
   $('preWrap').style.display = byOff ? 'none' : 'flex';
-  $('btnStart').textContent = byOff ? 'เริ่ม แล้วไปปิดโซนนี้' : 'เริ่มวัดโซนนี้';
+
+  /* เอาชื่อโซนขึ้นบนปุ่ม จะได้เห็นก่อนกดว่ากำลังจะวัดอะไร
+     และกดไม่ได้จนกว่าจะเลือก — กันบันทึกผิดโซนซ้ำรอยเดิม */
+  const sel = $('pick');
+  const zoneName = sel.value ? sel.options[sel.selectedIndex].text.replace(/ \(วัดแล้ว.*\)$/, '') : '';
+  $('btnStart').disabled = !sel.value;
+  $('btnStart').textContent = !sel.value
+    ? 'เลือกโซนก่อน'
+    : (byOff ? 'เริ่ม แล้วไปปิด: ' : 'เริ่มวัด: ') + zoneName;
   $('startHint').innerHTML = byOff
     ? '<b>วิธีนี้ใช้ได้ทุกเวลา แม้ช่วง On Peak</b> เพราะการปิดทำให้โหลดลด ไม่มีทางไปสร้างพีคใหม่ของเดือน<br>'
       + 'ลำดับ: กดเริ่ม → ไปปิดโซนนั้น → รอ 2 นาที → กดจบ → เปิดกลับได้เลย<br>'
@@ -434,6 +446,7 @@ function paintStartHint() {
 }
 $('fPre').onchange = paintStartHint;
 $('fMode').onchange = paintStartHint;
+$('pick').onchange = paintStartHint;
 paintStartHint();
 
 $('btnCancel').onclick = async () => {
